@@ -22,12 +22,15 @@ Shader "Voxel/VoxelShader" {
 
             sampler2D _MainTex;
             
+        
             float _VoxelScale;
 
-        #if SHADER_TARGET >= 45
-            StructuredBuffer<float3> positionBuffer;
-            StructuredBuffer<float3> colorBuffer;
-        #endif
+            struct voxel {
+                float3 Position;
+                float3 Color;
+            };
+            
+            StructuredBuffer<voxel> voxelBuffer;
 
             struct v2f
             {
@@ -41,16 +44,10 @@ Shader "Voxel/VoxelShader" {
 
             v2f vert (appdata_full v, uint instanceID : SV_InstanceID)
             {
-            #if SHADER_TARGET >= 45
-                float3 data = positionBuffer[instanceID];
-                float3 color = colorBuffer[instanceID];
-            #else
-                float3 data = 0;
-                float3 color = 0;
-            #endif
+                voxel data = voxelBuffer[instanceID];
 
                 float3 localPosition = v.vertex.xyz;
-                float3 worldPosition = data.xyz + localPosition;
+                float3 worldPosition = data.Position.xyz + localPosition;
                 float3 worldNormal = v.normal;
 
                 float3 ndotl = saturate(dot(worldNormal, _WorldSpaceLightPos0.xyz));
@@ -64,7 +61,7 @@ Shader "Voxel/VoxelShader" {
                 o.uv_MainTex = v.texcoord;
                 o.ambient = debug ? 0.3f : ambient;
                 o.diffuse = diffuse;
-                o.color = color;
+                o.color = data.Color;
                 
                 TRANSFER_SHADOW(o)
                 return o;
