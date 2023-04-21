@@ -7,7 +7,7 @@ public class VoxeletricSpace : MonoBehaviour {
     public float MaxRadius = 10;
     public float VoxelScale = 1;
     public Mesh VoxelMesh;
-    public AnimationCurve PropagationCurve;
+    public AnimationCurve GrowthCurve;
     [Min(0.01f)] public float GrowthSpeed = 3;
 
     public bool RestartAnimation;
@@ -17,9 +17,10 @@ public class VoxeletricSpace : MonoBehaviour {
     private ComputeBuffer m_argsBuffer;
     private uint[] m_args = new uint[5] { 0, 0, 0, 0, 0 };
 
+    private int m_instanceCount;
     private float m_animationTime, m_normalizedTime;
-    public int m_currentRadius;
-    public int m_previousRadius = -1;
+    private int m_currentRadius;
+    private int m_previousRadius = -1;
 
     private void Start() {
         m_material = new Material(Shader.Find("Voxel/VoxelShader"));
@@ -30,11 +31,12 @@ public class VoxeletricSpace : MonoBehaviour {
 
     private void Update() {
         m_normalizedTime = Mathf.Clamp01(m_normalizedTime + Time.deltaTime * GrowthSpeed);
-        m_animationTime = PropagationCurve.Evaluate(m_normalizedTime);
+        m_animationTime = GrowthCurve.Evaluate(m_normalizedTime);
 
         if (RestartAnimation) {
             m_normalizedTime = 0;
             m_currentRadius = 0;
+            m_instanceCount = 0;
             m_previousRadius = -1;
 
             RestartAnimation = false;
@@ -46,22 +48,19 @@ public class VoxeletricSpace : MonoBehaviour {
 
         Graphics.DrawMeshInstancedIndirect(VoxelMesh, 0, m_material, new Bounds(Center, new Vector3(MaxRadius, MaxRadius, MaxRadius)), m_argsBuffer);
     }
-    public float threshold;
-    private void UpdateBuffers() {
-        float r = Mathf.Lerp(1, MaxRadius / VoxelScale, m_animationTime);
-        int instanceCount = 0;
 
-        m_currentRadius = Mathf.RoundToInt(r);
+    private void UpdateBuffers() {
+        m_currentRadius = Mathf.RoundToInt(Mathf.Lerp(1, MaxRadius / VoxelScale, m_animationTime));
 
         if (m_currentRadius != m_previousRadius) {
             List<Vector3> positions = new List<Vector3>();
             List<Vector3> colors = new List<Vector3>();
 
-            for (float tx = -r; tx <= r; tx++) {
-                for (float ty = -r; ty <= r; ty++) {
-                    for (float tz = -r; tz <= r; tz++) {
-                        float sqrMag = tx * tx + ty * ty + tz * tz;
-                        float sqrR = r * r;
+            for (int tx = -m_currentRadius; tx <= m_currentRadius; tx++) {
+                for (int ty = -m_currentRadius; ty <= m_currentRadius; ty++) {
+                    for (int tz = -m_currentRadius; tz <= m_currentRadius; tz++) {
+                        int sqrMag = tx * tx + ty * ty + tz * tz;
+                        int sqrR = m_currentRadius * m_currentRadius;
 
                         if (sqrMag < sqrR && sqrMag > sqrR - (2 * m_currentRadius)) {
                             var color = Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1);
@@ -69,13 +68,13 @@ public class VoxeletricSpace : MonoBehaviour {
                             positions.Add(new Vector3(tx, ty, tz));
                             colors.Add(new Vector3(color.r, color.g, color.b));
 
-                            instanceCount++;
+                            m_instanceCount++;
                         }
                     }
                 }
             }
 
-            if (instanceCount == 0)
+            if (m_instanceCount == 0)
                 return;
 
             if (m_positionBuffer != null)
@@ -84,17 +83,19 @@ public class VoxeletricSpace : MonoBehaviour {
             if (m_colorBuffer != null)
                 m_colorBuffer.Release();
 
-            m_positionBuffer = new ComputeBuffer(instanceCount, sizeof(float) * 3);
+
+            // TODO: add to buffers instead of destroying them each call
+            m_positionBuffer = new ComputeBuffer(m_instanceCount, sizeof(float) * 3);
             m_positionBuffer.SetData(positions);
 
-            m_colorBuffer = new ComputeBuffer(instanceCount, sizeof(float) * 3);
+            m_colorBuffer = new ComputeBuffer(m_instanceCount, sizeof(float) * 3);
             m_colorBuffer.SetData(colors);
 
             m_material.SetBuffer("positionBuffer", m_positionBuffer);
             m_material.SetBuffer("colorBuffer", m_colorBuffer);
 
             m_args[0] = (uint)VoxelMesh.GetIndexCount(0);
-            m_args[1] = (uint)instanceCount;
+            m_args[1] = (uint)m_instanceCount;
             m_args[2] = (uint)VoxelMesh.GetIndexStart(0);
             m_args[3] = (uint)VoxelMesh.GetBaseVertex(0);
 

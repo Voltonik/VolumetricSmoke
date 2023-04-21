@@ -428,10 +428,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 88d8b4e110aa9484489753160ca64712, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  Radius: 10
+  Center: {x: 0, y: 0, z: 0}
+  MaxRadius: 10
   VoxelScale: 1
   VoxelMesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
-  PropagationCurve:
+  GrowthCurve:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
@@ -455,4 +456,5 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  GrowthSpeed: 3
   RestartAnimation: 0
