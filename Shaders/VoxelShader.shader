@@ -1,5 +1,3 @@
-// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
 Shader "Voxel/VoxelShader" {
     Properties {
         _MainTex ("Albedo (RGB)", 2D) = "white"
@@ -9,11 +7,7 @@ Shader "Voxel/VoxelShader" {
 
         Pass {
 
-            Tags
-            {
-                "RenderType"="Transparent"
-                "Queue" = "Transparent"
-            }
+            Tags { "RenderType"="Opaque" }
 
             CGPROGRAM
 
@@ -62,11 +56,13 @@ Shader "Voxel/VoxelShader" {
                 float3 ndotl = saturate(dot(worldNormal, _WorldSpaceLightPos0.xyz));
                 float3 ambient = ShadeSH9(float4(worldNormal, 1.0f));
                 float3 diffuse = (ndotl * _LightColor0.rgb);
+                
+                bool debug = true;
   
                 v2f o;
                 o.pos = UnityObjectToClipPos(worldPosition*_VoxelScale);
                 o.uv_MainTex = v.texcoord;
-                o.ambient = ambient;
+                o.ambient = debug ? 0.3f : ambient;
                 o.diffuse = diffuse;
                 o.color = color;
                 
@@ -80,7 +76,6 @@ Shader "Voxel/VoxelShader" {
                 fixed4 albedo = tex2D(_MainTex, i.uv_MainTex);
                 float3 lighting = i.diffuse * shadow + i.ambient;
                 fixed4 output = fixed4(albedo.rgb * i.color * lighting, albedo.w);
-                output.w = 0.1f;
                 UNITY_APPLY_FOG(i.fogCoord, output);
                 
                 return output;
