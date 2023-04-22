@@ -48,6 +48,9 @@ public class VoxeletricSpace : MonoBehaviour {
             m_growthSpeed = growthSpeed;
             m_growthCurve = growthCurve;
 
+            if (growthCurve == null)
+                growthCurve = AnimationCurve.Linear(0, 0, 1, 1);
+
             m_material = new Material(Shader.Find("Voxel/VoxelShader"));
             m_material.SetFloat("_VoxelScale", m_voxelScale);
 
@@ -59,14 +62,16 @@ public class VoxeletricSpace : MonoBehaviour {
                         int sqrMag = tx * tx + ty * ty + tz * tz;
                         int sqrR = r * r;
 
-                        if (sqrMag < sqrR)
-                            m_voxelsCache.Add(new Voxel(new Vector3(tx, ty, tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                        if (sqrMag < sqrR) {
+                            Voxel voxel = new Voxel(new Vector3(tx, ty, tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag);
+
+                            if (!Physics.Raycast(m_center, voxel.Position, m_maxRadius)) {
+                                m_voxelsCache.Add(voxel);
+                            }
+                        }
                     }
                 }
             }
-
-            if (growthCurve == null)
-                growthCurve = AnimationCurve.Linear(0, 0, 1, 1);
         }
 
         public async void Explode() {
