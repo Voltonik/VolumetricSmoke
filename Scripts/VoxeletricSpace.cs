@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 
 public class VoxeletricSpace : MonoBehaviour {
@@ -8,20 +7,16 @@ public class VoxeletricSpace : MonoBehaviour {
     public float GasMassToAirRatio = 1;
     public Mesh VoxelMesh;
     public AnimationCurve GrowthCurve;
-    public float GrowthSpeed = 0.9f;
+    public float GrowthTime = 0.3f;
 
     private List<VoxelSphere> m_spheres = new List<VoxelSphere>();
-
-    private void Start() {
-        UnsafeUtility.SetLeakDetectionMode(Unity.Collections.NativeLeakDetectionMode.EnabledWithStackTrace);
-    }
 
     private void Update() {
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         RaycastHit hit;
 
         if (Input.GetMouseButtonDown(0) && Physics.Raycast(ray, out hit, Mathf.Infinity)) {
-            var sphere = new VoxelSphere(hit.point, MaxRadius, VoxelMesh, VoxelScale, 1, GrowthSpeed, GrowthCurve);
+            var sphere = new VoxelSphere(hit.point, MaxRadius, VoxelMesh, VoxelScale, GrowthTime, GrowthCurve);
 
             sphere.Explode();
 
