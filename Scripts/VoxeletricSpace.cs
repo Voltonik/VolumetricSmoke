@@ -4,7 +4,6 @@ using UnityEngine;
 public class VoxeletricSpace : MonoBehaviour {
     public float MaxRadius = 10;
     public float VoxelScale = 1;
-    public float GasMassToAirRatio = 1;
     public Mesh VoxelMesh;
     public AnimationCurve GrowthCurve;
     public float GrowthTime = 0.3f;

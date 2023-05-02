@@ -5,28 +5,22 @@ using System.Threading.Tasks;
 using MyBox;
 using UnityEngine;
 
-using Random = UnityEngine.Random;
-
 public class VoxelSphere {
     public class Voxel {
-        public Vector3 Position;
-        public Vector3 Color;
+        public Vector3 LocalPosition;
         public int Order;
 
-        public Voxel(Vector3 position, Color color, int order) {
-            Position = position;
-            Color = new Vector3(color.r, color.g, color.b);
+        public Voxel(Vector3 position, int order) {
+            LocalPosition = position;
             Order = order;
         }
     }
 
     public struct VoxelData {
         public Vector3 Position;
-        public Vector3 Color;
 
-        public VoxelData(Vector3 position, Vector3 color) {
+        public VoxelData(Vector3 position) {
             Position = position;
-            Color = color;
         }
 
         public static int SIZE = System.Runtime.InteropServices.Marshal.SizeOf(typeof(VoxelData));
@@ -74,8 +68,8 @@ public class VoxelSphere {
         List<Voxel> outLayerVoxels = new List<Voxel>();
 
         GenerateSphere(r, v => {
-            if (!Physics.Raycast(m_center + Vector3.up * 0.1f, v.Position, m_maxRadius)) {
-                m_voxelsCache.Add(v.Position, v);
+            if (!Physics.Raycast(m_center + Vector3.up * 0.1f, v.LocalPosition, m_maxRadius)) {
+                m_voxelsCache.Add(v.LocalPosition, v);
 
                 if (v.Order > maxRadius) {
                     maxRadius = v.Order;
@@ -102,10 +96,10 @@ public class VoxelSphere {
                 var connectedVoxels = GetConnectedVoxels(outLayerVoxels[i]);
 
                 for (int j = 0; j < 6; j++) {
-                    if (!m_voxelsCache.ContainsKey(connectedVoxels[j].Position)
-                    && !Physics.CheckBox(m_center + connectedVoxels[j].Position + Vector3.up * 0.1f, Vector3.one * (m_voxelScale / 2))) {
+                    if (!m_voxelsCache.ContainsKey(connectedVoxels[j].LocalPosition)
+                    && !Physics.CheckBox(m_center + connectedVoxels[j].LocalPosition + Vector3.up * 0.1f, Vector3.one * (m_voxelScale / 2))) {
                         connectedVoxels[j].Order = nextIndex;
-                        m_voxelsCache.Add(connectedVoxels[j].Position, connectedVoxels[j]);
+                        m_voxelsCache.Add(connectedVoxels[j].LocalPosition, connectedVoxels[j]);
                         newLayerVoxels.Add(connectedVoxels[j]);
                         deleted--;
                         nextIndex++;
@@ -130,22 +124,22 @@ public class VoxelSphere {
 
     public static Voxel[] GetConnectedVoxels(Voxel v) {
         return new[] {
-                new Voxel(v.Position + Vector3.up, Random.ColorHSV(0, 1, 0, 0.2f, 0, 1), Mathf.RoundToInt((v.Position + Vector3.up).sqrMagnitude)),
-                new Voxel(v.Position + Vector3.down, Random.ColorHSV(0, 1, 0, 0.2f, 0, 1), Mathf.RoundToInt((v.Position + Vector3.down).sqrMagnitude)),
-                new Voxel(v.Position + Vector3.right, Random.ColorHSV(0, 1, 0, 0.2f, 0, 1), Mathf.RoundToInt((v.Position + Vector3.right).sqrMagnitude)),
-                new Voxel(v.Position + Vector3.left, Random.ColorHSV(0, 1, 0, 0.2f, 0, 1), Mathf.RoundToInt((v.Position + Vector3.left).sqrMagnitude)),
-                new Voxel(v.Position + Vector3.forward, Random.ColorHSV(0, 1, 0, 0.2f, 0, 1), Mathf.RoundToInt((v.Position + Vector3.forward).sqrMagnitude)),
-                new Voxel(v.Position + Vector3.back, Random.ColorHSV(0, 1, 0, 0.2f, 0, 1), Mathf.RoundToInt((v.Position + Vector3.back).sqrMagnitude)),
+                new Voxel(v.LocalPosition + Vector3.up, Mathf.RoundToInt((v.LocalPosition + Vector3.up).sqrMagnitude)),
+                new Voxel(v.LocalPosition + Vector3.down, Mathf.RoundToInt((v.LocalPosition + Vector3.down).sqrMagnitude)),
+                new Voxel(v.LocalPosition + Vector3.right, Mathf.RoundToInt((v.LocalPosition + Vector3.right).sqrMagnitude)),
+                new Voxel(v.LocalPosition + Vector3.left, Mathf.RoundToInt((v.LocalPosition + Vector3.left).sqrMagnitude)),
+                new Voxel(v.LocalPosition + Vector3.forward, Mathf.RoundToInt((v.LocalPosition + Vector3.forward).sqrMagnitude)),
+                new Voxel(v.LocalPosition + Vector3.back, Mathf.RoundToInt((v.LocalPosition + Vector3.back).sqrMagnitude)),
             };
     }
 
     public static bool IsVoxelConnected(Dictionary<Vector3, Voxel> voxels, Voxel voxel) {
-        return voxels.ContainsKey(voxel.Position + Vector3.up)
-                    || voxels.ContainsKey(voxel.Position + Vector3.down)
-                    || voxels.ContainsKey(voxel.Position + Vector3.right)
-                    || voxels.ContainsKey(voxel.Position + Vector3.left)
-                    || voxels.ContainsKey(voxel.Position + Vector3.forward)
-                    || voxels.ContainsKey(voxel.Position + Vector3.back);
+        return voxels.ContainsKey(voxel.LocalPosition + Vector3.up)
+                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.down)
+                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.right)
+                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.left)
+                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.forward)
+                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.back);
     }
 
     private static void GenerateSphere(int r, Action<Voxel> sphereVoxel) {
@@ -155,33 +149,33 @@ public class VoxelSphere {
                     int sqrMag = tx * tx + ty * ty + tz * tz;
 
                     if (sqrMag < r * r) {
-                        sphereVoxel.Invoke(new Voxel(new Vector3(tx, ty, tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                        sphereVoxel.Invoke(new Voxel(new Vector3(tx, ty, tz), sqrMag));
 
                         if (tx != 0) {
-                            sphereVoxel.Invoke(new Voxel(new Vector3(-tx, ty, tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                            sphereVoxel.Invoke(new Voxel(new Vector3(-tx, ty, tz), sqrMag));
 
                             if (tz != 0) {
-                                sphereVoxel.Invoke(new Voxel(new Vector3(-tx, ty, -tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                                sphereVoxel.Invoke(new Voxel(new Vector3(-tx, ty, -tz), sqrMag));
                             }
                         }
 
                         if (tz != 0) {
-                            sphereVoxel.Invoke(new Voxel(new Vector3(tx, ty, -tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                            sphereVoxel.Invoke(new Voxel(new Vector3(tx, ty, -tz), sqrMag));
                         }
 
                         if (ty != 0) {
-                            sphereVoxel.Invoke(new Voxel(new Vector3(tx, -ty, tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                            sphereVoxel.Invoke(new Voxel(new Vector3(tx, -ty, tz), sqrMag));
 
                             if (tx != 0) {
-                                sphereVoxel.Invoke(new Voxel(new Vector3(-tx, -ty, tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                                sphereVoxel.Invoke(new Voxel(new Vector3(-tx, -ty, tz), sqrMag));
 
                                 if (tz != 0) {
-                                    sphereVoxel.Invoke(new Voxel(new Vector3(-tx, -ty, -tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                                    sphereVoxel.Invoke(new Voxel(new Vector3(-tx, -ty, -tz), sqrMag));
                                 }
                             }
 
                             if (tz != 0) {
-                                sphereVoxel.Invoke(new Voxel(new Vector3(tx, -ty, -tz), Random.ColorHSV(0, 1, 0.7f, 1, 0.7f, 1), sqrMag));
+                                sphereVoxel.Invoke(new Voxel(new Vector3(tx, -ty, -tz), sqrMag));
                             }
                         }
                     }
@@ -208,6 +202,10 @@ public class VoxelSphere {
         int prev_i = 0;
         bool animating = true;
 
+        Vector3 minPosition = Vector3.zero;
+        Vector3 maxPosition = Vector3.zero;
+        Bounds bounds = new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius));
+
         while (Application.isPlaying && m_running) {
             if (animating && t <= m_growthTime) {
                 float normalizedTime = t / m_growthTime;
@@ -218,7 +216,15 @@ public class VoxelSphere {
                 for (int i = starting_i; i < end_i; i++) {
                     prev_i = i;
 
-                    m_voxels.Add(new VoxelData(m_voxelsToTransition[i].Position, m_voxelsToTransition[i].Color));
+                    VoxelData voxel = new VoxelData(m_voxelsToTransition[i].LocalPosition);
+                    m_voxels.Add(voxel);
+
+                    voxel.Position += m_center;
+
+                    if (voxel.Position.x + voxel.Position.y + voxel.Position.z < minPosition.x + minPosition.y + minPosition.z)
+                        minPosition = voxel.Position;
+                    else if (voxel.Position.x + voxel.Position.y + voxel.Position.z > maxPosition.x + maxPosition.y + maxPosition.z)
+                        maxPosition = voxel.Position;
 
                     m_voxelBuffer?.Release();
                     m_voxelBuffer = new ComputeBuffer(m_voxels.Count, VoxelData.SIZE);
@@ -245,7 +251,8 @@ public class VoxelSphere {
                     t = next_t;
             }
 
-            Graphics.DrawMeshInstancedIndirect(m_voxelMesh, 0, m_material, new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius)), m_argsBuffer);
+            Raymarcher.Instance.UpdateMaterial(m_material);
+            Graphics.DrawMeshInstancedIndirect(m_voxelMesh, 0, m_material, bounds, m_argsBuffer);
 
             await Task.Yield();
         }
