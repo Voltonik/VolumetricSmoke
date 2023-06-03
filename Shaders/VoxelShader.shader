@@ -43,9 +43,9 @@ Shader "Voxel/VoxelShader" {
             
             float _VoxelScale;
             StructuredBuffer<voxel> voxelBuffer;
+			float3 boundsMin, boundsMax;
 			
             v2f vert (appdata v, uint instanceID : SV_InstanceID) {
-                voxel data = voxelBuffer[instanceID];
                 v2f o;
 				
 				const float halfExtends = _VoxelScale * 0.5;
@@ -184,25 +184,29 @@ Shader "Voxel/VoxelShader" {
 				return f;
 			}
 
-			float densityAtPosition(float3 rayPos) {
-				return max(0, FBM(rayPos + cloudSpeed*_Time.x, scale)-densityOffset) * densityMultiplier;
+			float densityAtPosition(float3 rayPos, float dstInsideBox) {
+				return max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
 			}
 
 			// Calculate proportion of light that reaches the given point from the lightsource
-			float lightmarch(float3 position, float3 boundsMin, float3 boundsMax) {
+			float lightmarch(float3 position, float3 boundsMin, float3 boundsMax, float dstInsideBox) {
 				float3 L = _WorldSpaceLightPos0.xyz;
+				
 				float stepSize = rayBox(boundsMin, boundsMax, position, 1 / L).y / lightmarchSteps;
-
+				
 				float density = 0;
 
 				for (int i = 0; i < lightmarchSteps; i++) {
 					position += L * stepSize;
-					density += max(0, densityAtPosition(position) * stepSize);
+					density += max(0, densityAtPosition(position, dstInsideBox) * stepSize);
 				}
 
 				float transmit = beer(density * (1 - outScatterMultiplier));
 				return lerp(transmit, 1, transmitThreshold);
 			} 
+			
+			
+			int voxelsCount;
 			
             float4 frag (v2f i) : SV_Target {
 				float3 rayOrigin = i.rayOrigin;
@@ -216,6 +220,13 @@ Shader "Voxel/VoxelShader" {
 				
 				float dstToBox = rayBoxInfo.x;
 				float dstInsideBox = rayBoxInfo.y;
+				
+				if (dstInsideBox == 0) {
+					return 0;
+				}
+				
+				const float halfExtends = _VoxelScale * 0.5;
+				
 				
 				float3 entryPoint = rayOrigin + rayDir * dstToBox;
 				
@@ -233,22 +244,22 @@ Shader "Voxel/VoxelShader" {
 
 				float3 I = 0; // Illumination
 				
-				for(float steps = offset; steps < stepLimit; steps+=stepSize) {
-					float3 pos = entryPoint + rayDir * steps;
-					float density = densityAtPosition(pos);
+				for (float steps = offset; steps < stepLimit; steps+=stepSize) {
+					float3 p = entryPoint + rayDir * steps;
+					float density = densityAtPosition(p, dstInsideBox);
 
 					if (density > 0) {
-						I += density * transmit * lightmarch(pos, i.boundsMin, i.boundsMax) * scatter;
+						I += density * transmit * lightmarch(p, boundsMin, boundsMax, dstInsideBox) * scatter;
 						transmit *= beer(density  * (1 - inScatterMultiplier));
 					}
 				}
                 
-                float3 color = I * _LightColor0 * transmit * scatterColor;
+                float3 color = (I * _LightColor0 * scatterColor) + transmit;
 				
 				return float4(color, clamp((1-transmit)*3, 0, 1));
             }
 
             ENDCG
         }
-    }
+	}
 }

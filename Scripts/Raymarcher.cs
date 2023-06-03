@@ -1,14 +1,15 @@
 ﻿using System.Collections.Generic;
-using UnityEditor;
 using UnityEngine;
 
-[ExecuteInEditMode]
+[ExecuteInEditMode, ImageEffectAllowedInSceneView]
 public class Raymarcher : MonoBehaviour {
     public static Raymarcher Instance;
 
-    [Header("Main")]
-    public Material EditorMaterial;
+    [Header("Editor preview")]
+    public Material editorMaterial;
+    public Bounds editorBounds;
 
+    [Header("Main")]
     public float cloudScale = 1;
     public float densityMultiplier = 2.8f;
     public float densityOffset = 13.23f;
@@ -26,11 +27,36 @@ public class Raymarcher : MonoBehaviour {
     public float scatterMultiplier = 1;
     public Vector3 cloudSpeed = new Vector3(0.2f, 0f, 0.1f);
 
+    private List<VoxelSphere> voxelSpheres = new List<VoxelSphere>();
+    private bool isEven;
+
     private void OnEnable() {
         Instance = this;
     }
 
-    public void UpdateMaterial(Material material) {
+    private void OnDisable() {
+        voxelSpheres.Clear();
+    }
+
+    private void OnDrawGizmos() {
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireCube(editorBounds.center, editorBounds.size);
+    }
+
+    public void AddVoxelSphere(VoxelSphere voxelSphere) {
+        voxelSpheres.Add(voxelSphere);
+        isEven = voxelSpheres.Count % 2 == 0;
+    }
+
+    public void RemoveVoxelSphere(VoxelSphere voxelSphere) {
+        voxelSpheres.Remove(voxelSphere);
+        isEven = voxelSpheres.Count % 2 == 0;
+    }
+
+    private void SetSphereProps(Material material, Bounds bounds) {
+        material.SetVector("boundsMin", bounds.min - Vector3.one * 0.2f);
+        material.SetVector("boundsMax", bounds.max + Vector3.one * 0.2f);
+
         material.SetFloat("scale", cloudScale);
         material.SetFloat("densityMultiplier", densityMultiplier);
         material.SetFloat("densityOffset", densityOffset);
@@ -50,11 +76,46 @@ public class Raymarcher : MonoBehaviour {
         material.SetFloat("scatterMultiplier", scatterMultiplier);
 
         material.SetVector("cloudSpeed", cloudSpeed);
-
     }
 
-    private void Update() {
-        if (EditorMaterial != null)
-            UpdateMaterial(EditorMaterial);
+    private void OnRenderImage(RenderTexture src, RenderTexture dest) {
+        if (!Application.isPlaying) {
+            if (editorMaterial == null) {
+                Graphics.Blit(src, dest);
+
+                return;
+            }
+
+            SetSphereProps(editorMaterial, editorBounds);
+
+            Graphics.Blit(src, dest, editorMaterial);
+
+            return;
+        }
+
+        RenderTexture tempSrc = RenderTexture.GetTemporary(src.width, src.height, src.depth, src.format);
+        RenderTexture tempDst = RenderTexture.GetTemporary(src.width, src.height, src.depth, src.format);
+
+        Graphics.Blit(src, tempSrc);
+
+        for (int i = 0; i < voxelSpheres.Count; i++) {
+            var sphere = voxelSpheres[i];
+            var mat = sphere.Material;
+
+            mat.SetBuffer("voxelBuffer", sphere.Voxels);
+            mat.SetInteger("voxelsCount", sphere.Voxels.count);
+
+            SetSphereProps(mat, sphere.Bounds);
+
+            if (i % 2 == 0)
+                Graphics.Blit(tempSrc, tempDst, mat);
+            else
+                Graphics.Blit(tempDst, tempSrc, mat);
+        }
+
+        Graphics.Blit(isEven ? tempSrc : tempDst, dest);
+
+        RenderTexture.ReleaseTemporary(tempSrc);
+        RenderTexture.ReleaseTemporary(tempDst);
     }
 }

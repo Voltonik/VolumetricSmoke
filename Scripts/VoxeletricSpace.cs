@@ -17,7 +17,7 @@ public class VoxeletricSpace : MonoBehaviour {
         if (Input.GetMouseButtonDown(0) && Physics.Raycast(ray, out hit, Mathf.Infinity)) {
             var sphere = new VoxelSphere(hit.point, MaxRadius, VoxelMesh, VoxelScale, GrowthTime, GrowthCurve);
 
-            sphere.Explode();
+            // sphere.Explode();
 
             m_spheres.Add(sphere);
         }
