@@ -38,6 +38,8 @@ public class Raymarcher : MonoBehaviour {
 
     public Texture3D VoxelsGrid;
 
+    public Vector3 offset;
+
     private void OnEnable() {
         Instance = this;
     }
@@ -46,10 +48,8 @@ public class Raymarcher : MonoBehaviour {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireCube(GlobalBounds.center, GlobalBounds.size);
     }
-    public Vector3 offset;
-    public void UpdateVoxelGrid() {
-        // TODO: improve
 
+    public void UpdateGridSize() {
         VoxelsGrid = new Texture3D(Mathf.CeilToInt(GlobalBounds.size.x),
             Mathf.CeilToInt(GlobalBounds.size.y),
             Mathf.CeilToInt(GlobalBounds.size.z),
@@ -57,21 +57,50 @@ public class Raymarcher : MonoBehaviour {
 
         VoxelsGrid.wrapMode = TextureWrapMode.Clamp;
 
-        foreach (var voxel in GlobalVoxels) {
-            Vector3 voxelPos = voxel.Center + voxel.LocalPosition;
-            Vector3 intVoxelPos = new Vector3((int)voxelPos.x, (int)voxelPos.y, (int)voxelPos.z);
-
-            Vector3 boxPos = new Vector3((int)GlobalBounds.min.x - offset.x, (int)GlobalBounds.min.y - offset.y, (int)GlobalBounds.min.z - offset.z) - intVoxelPos;
-
-            VoxelsGrid.SetPixel((int)Mathf.Abs(boxPos.x), (int)Mathf.Abs(boxPos.y), (int)Mathf.Abs(boxPos.z), Color.red, 0);
-
-            _SmokeOrigin = voxel.Center;
-        }
+        foreach (var voxel in GlobalVoxels)
+            UpdateVoxelGrid(voxel, 1, false);
 
         VoxelsGrid.Apply();
+
+        Material.SetTexture("voxelGrid", VoxelsGrid);
+
+        Material.SetVector("boundsMin", GlobalBounds.min);
+        Material.SetVector("boundsMax", GlobalBounds.max);
+        Material.SetVector("boundsExtent", GlobalBounds.size);
+    }
+
+    public void UpdateVoxelGrid(VoxelSphere.VoxelData voxel, float furthestVoxel, bool apply = true) {
+        // TODO: improve
+        Vector3 voxelPos = voxel.Center + voxel.LocalPosition;
+        Vector3Int intVoxelPos = new Vector3Int((int)voxelPos.x, (int)voxelPos.y, (int)voxelPos.z);
+
+        Vector3Int boxPos = new Vector3Int((int)(GlobalBounds.min.x - offset.x), (int)(GlobalBounds.min.y - offset.y), (int)(GlobalBounds.min.z - offset.z)) - intVoxelPos;
+
+        float r = 1 - ((voxel.LocalPosition).sqrMagnitude / (furthestVoxel * furthestVoxel));
+
+        VoxelsGrid.SetPixel(Mathf.Abs(boxPos.x), Mathf.Abs(boxPos.y), Mathf.Abs(boxPos.z), new Color(1, r, 0), 0);
+
+        _SmokeOrigin = voxel.Center;
+
+        if (apply) {
+            VoxelsGrid.Apply();
+
+            Material.SetTexture("voxelGrid", VoxelsGrid);
+        }
     }
 
     public Vector3 _SmokeOrigin;
+
+    // Downsamples the texture to a quarter resolution.
+    private void DownSample4x(RenderTexture source, RenderTexture dest) {
+        float off = 1.0f;
+        Graphics.BlitMultiTap(source, dest, Material,
+            new Vector2(-off, -off),
+            new Vector2(-off, off),
+            new Vector2(off, off),
+            new Vector2(off, -off)
+        );
+    }
 
     private void OnRenderImage(RenderTexture src, RenderTexture dest) {
         if (Debug || Material == null || RealtimeVoxels.Count == 0) {
@@ -80,27 +109,14 @@ public class Raymarcher : MonoBehaviour {
             return;
         }
 
-        UpdateVoxelGrid();
+        RenderTexture buffer = RenderTexture.GetTemporary(src.width / 4, src.height / 4, 0);
 
-        Material.SetVector("boundsMin", GlobalBounds.min);
-        Material.SetVector("boundsMax", GlobalBounds.max);
-        Material.SetVector("boundsExtent", GlobalBounds.size);
-        Material.SetVector("boundsCenter", GlobalBounds.center);
+        DownSample4x(src, buffer);
 
         Material.SetVector("_SmokeOrigin", _SmokeOrigin);
 
         Material.SetFloat("_DensityFalloff", densityFalloff);
         Material.SetFloat("_Radius", radius);
-
-        Material.SetTexture("voxelGrid", VoxelsGrid);
-
-        // m_voxelsBuffer = new ComputeBuffer(RealtimeVoxels.Count, VoxelSphere.VoxelData.SIZE);
-        // m_voxelsBuffer.SetData(RealtimeVoxels);
-
-        // Material.SetBuffer("voxelBuffer", m_voxelsBuffer);
-        // Material.SetInt("voxelsCount", RealtimeVoxels.Count);
-
-        // m_voxelsBuffer.Release();
 
         Material.SetFloat("scale", cloudScale);
         Material.SetFloat("densityMultiplier", densityMultiplier);

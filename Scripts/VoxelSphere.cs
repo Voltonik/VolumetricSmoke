@@ -20,14 +20,16 @@ public class VoxelSphere {
     public struct VoxelData {
         public Vector3 LocalPosition;
         public Vector3 Center;
+        public float FurthestVoxel;
         public int SphereID;
         public Vector3 Color;
 
-        public VoxelData(Vector3 position, Vector3 center, int sphereID, Color color = default(Color)) {
+        public VoxelData(Vector3 position, Vector3 center, float furthestVoxel, int sphereID, Color color = default(Color)) {
             LocalPosition = position;
-            Center = center;
             SphereID = sphereID;
             Color = new Vector3(color.r, color.g, color.b);
+            Center = center;
+            FurthestVoxel = furthestVoxel;
         }
 
         public static int SIZE = System.Runtime.InteropServices.Marshal.SizeOf(typeof(VoxelData));
@@ -48,7 +50,7 @@ public class VoxelSphere {
     private ComputeBuffer m_voxelBuffer;
     private ComputeBuffer m_argsBuffer;
 
-    private List<VoxelData> m_voxels = new List<VoxelData>();
+    private List<VoxelData> m_debugVoxels = new List<VoxelData>();
     private List<Voxel> m_voxelsToTransition = new List<Voxel>();
     private Dictionary<Vector3, Voxel> m_voxelsCache = new Dictionary<Vector3, Voxel>();
 
@@ -73,15 +75,13 @@ public class VoxelSphere {
 
         CalculateSphere();
 
-        Raymarcher.Instance.UpdateVoxelGrid();
+        Raymarcher.Instance.UpdateGridSize();
 
         Explode();
     }
 
     private void AddVoxel(Voxel v) {
         m_voxelsCache.Add(v.LocalPosition, v);
-
-        Raymarcher.Instance.GlobalVoxels.Add(new VoxelData(v.LocalPosition, m_center, SphereID));
 
         if (Raymarcher.Instance.GlobalBounds.size == Vector3.zero)
             Raymarcher.Instance.GlobalBounds = new Bounds(v.LocalPosition + m_center, Vector3.one * m_voxelScale);
@@ -233,6 +233,8 @@ public class VoxelSphere {
         Bounds renderBounds = new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius));
         Bounds bounds = new Bounds(m_center, Vector3.zero);
 
+        float furthestVoxel = 0;
+
         while (Application.isPlaying && m_running) {
             if (animating && t <= m_growthTime) {
                 float normalizedTime = t / m_growthTime;
@@ -243,25 +245,34 @@ public class VoxelSphere {
                 for (int i = starting_i; i < end_i; i++) {
                     prev_i = i;
 
-                    var voxelData = new VoxelData(m_voxelsToTransition[i].LocalPosition, m_center, SphereID, UnityEngine.Random.ColorHSV());
+
+                    float vMag = m_voxelsToTransition[i].LocalPosition.sqrMagnitude;
+
+                    if (vMag > furthestVoxel)
+                        furthestVoxel = vMag;
+
+                    var voxelData = new VoxelData(m_voxelsToTransition[i].LocalPosition, m_center, furthestVoxel, SphereID, UnityEngine.Random.ColorHSV());
 
                     Raymarcher.Instance.RealtimeVoxels.Add(voxelData);
 
-                    m_voxels.Add(voxelData);
+                    m_debugVoxels.Add(voxelData);
 
                     bounds.Encapsulate(new Bounds(voxelData.LocalPosition + m_center, Vector3.one * m_voxelScale));
 
+                    Raymarcher.Instance.GlobalVoxels.Add(voxelData);
+                    Raymarcher.Instance.UpdateVoxelGrid(voxelData, furthestVoxel);
+
                     if (Raymarcher.Instance.Debug) {
                         m_voxelBuffer?.Release();
-                        m_voxelBuffer = new ComputeBuffer(m_voxels.Count, VoxelData.SIZE);
+                        m_voxelBuffer = new ComputeBuffer(m_debugVoxels.Count, VoxelData.SIZE);
 
-                        m_voxelBuffer.SetData(m_voxels);
+                        m_voxelBuffer.SetData(m_debugVoxels);
                         m_material.SetBuffer("voxelBuffer", m_voxelBuffer);
-                        m_material.SetInt("voxelsCount", m_voxels.Count);
+                        m_material.SetInt("voxelsCount", m_debugVoxels.Count);
 
                         uint[] args = new uint[5] {
                             (uint)m_voxelMesh.GetIndexCount(0),
-                            (uint)m_voxels.Count,
+                            (uint)m_debugVoxels.Count,
                             (uint)m_voxelMesh.GetIndexStart(0),
                             (uint)m_voxelMesh.GetBaseVertex(0),
                             0

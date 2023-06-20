@@ -189,7 +189,6 @@ Shader "Voxel/VoxelShader" {
 
 			float densityAtPosition(float3 rayPos) {
 				float n = max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
-				return n;
 				
 				float3 uvw = world_to_box(rayPos, boundsMin, boundsExtent);
 				float v = tex3Dlod(voxelGrid, float4(uvw, 0)).g;
@@ -271,7 +270,7 @@ Shader "Voxel/VoxelShader" {
 					
 					float3 uvw = world_to_box(samplePos, boundsMin, boundsExtent);
 					
-					if (tex3Dlod(voxelGrid, float4(uvw, 0)).r >= v_offset.x)
+					if (tex3Dlod(voxelGrid, float4(uvw, 0)).r >= -20)
 						sampleDensity = densityAtPosition(samplePos);
 					
 					if (sampleDensity > 0) {
