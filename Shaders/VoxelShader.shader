@@ -1,13 +1,11 @@
 Shader "Voxel/VoxelShader" {
     Properties {
 		_MainTex ("Texture", 2D) = "white" {}
-		_VoxelScale ("Voxel scale", Float) = 1
+		_VoxelResolution ("Voxel resolution", Vector) = (0, 0, 0, 0)
+		v_offset ("v_offset", Vector) = (0, 0, 0, 0)
     }
     SubShader {
-		Tags {"Queue"="Transparent"}
-		
-		Cull Off
-		Blend SrcAlpha OneMinusSrcAlpha
+		Cull Off ZWrite Off ZTest Always
 		
         Pass {
             CGPROGRAM
@@ -34,38 +32,24 @@ Shader "Voxel/VoxelShader" {
 			{
 				float4 pos : SV_POSITION;
 				float2 uv : TEXCOORD0;
-				float2 screenSpaceUV : TEXCOORD1;
-                float3 rayOrigin : TEXCOORD2;
-                float3 rayDirection : TEXCOORD3;
-                float3 boundsMin : TEXCOORD4;
-                float3 boundsMax : TEXCOORD5;
+                float3 rayDirection : TEXCOORD1;
 			};
             
-            float _VoxelScale;
+            float3 _VoxelResolution;
             StructuredBuffer<voxel> voxelBuffer;
-			float3 boundsMin, boundsMax;
+			int voxelsCount;
+			float3 boundsMin, boundsMax, boundsExtent;
 			
             v2f vert (appdata v, uint instanceID : SV_InstanceID) {
                 v2f o;
 				
-				const float halfExtends = _VoxelScale * 0.5;
-				
-				float4 voxelPos = float4((data.Position.xyz + v.vertex.xyz), v.vertex.w);
-				float3 objectPos = data.Position.xyz + unity_ObjectToWorld._m03_m13_m23.xyz;
-				
-				o.boundsMin = objectPos - halfExtends;
-				o.boundsMax = objectPos + halfExtends;
-				
-                o.pos = UnityObjectToClipPos(voxelPos.xyz * _VoxelScale);
+				o.pos = UnityObjectToClipPos(v.vertex);
 				o.uv = v.uv;
 				
-				float4 screenPos = ComputeScreenPos(o.pos);
-				o.screenSpaceUV = screenPos.xy / screenPos.w;
+				float3 viewVector = mul(unity_CameraInvProjection, float4(v.uv * 2 - 1, 0, -1));
+				o.rayDirection = mul(unity_CameraToWorld, float4(viewVector,0));
 				
-				o.rayOrigin = _WorldSpaceCameraPos;
-                o.rayDirection = mul(unity_ObjectToWorld, voxelPos * float4(_VoxelScale, _VoxelScale, _VoxelScale, 1)) - o.rayOrigin;
-				
-                return o;
+				return o;
             }
 			
 			sampler2D _MainTex;
@@ -183,13 +167,59 @@ Shader "Voxel/VoxelShader" {
 				f += 0.015625	* Noise(p);
 				return f;
 			}
-
-			float densityAtPosition(float3 rayPos, float dstInsideBox) {
-				return max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
+			
+			float3 _SmokeOrigin;
+			float _Radius;
+			float _DensityFalloff;
+			
+			sampler3D voxelGrid;
+			
+			float3 SnapToGrid(float3 position, float gridSize) {
+				float3 snappedPosition = float3(
+					floor(position.x / gridSize) * gridSize,
+					floor(position.y / gridSize) * gridSize,
+					floor(position.z / gridSize) * gridSize
+				);
+				return snappedPosition;
+			}
+			
+			float3 world_to_box(float3 world_pos, float3 box_pos, float3 box_size) {
+				return (world_pos - box_pos) / box_size;
 			}
 
+			float densityAtPosition(float3 rayPos) {
+				float n = max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
+				return n;
+				
+				float3 uvw = world_to_box(rayPos, boundsMin, boundsExtent);
+				float v = tex3Dlod(voxelGrid, float4(uvw, 0)).g;
+				
+				float falloff = min(1, smoothstep(_DensityFalloff, 1, min(1.0f, 1 - (v / 16.0f))) + n);
+				
+				return n * (1 - falloff);
+				
+				// float3 vp = rayPos - _SmokeOrigin;
+    			// float3 radius = _Radius - 0.1f;
+				
+				// float3 uvw = world_to_box(rayPos, boundsMin, boundsExtent);
+				// float v = 1 - tex3Dlod(voxelGrid, float4(uvw, 0)).g;
+	
+				// float dist = min(1.0f, length(vp / radius));
+				// float voxelDist = min(1.0f, 1 - (v / 16.0f));
+				// dist = max(dist, voxelDist);
+	
+				// dist = smoothstep(_DensityFalloff, 1.0f, dist);
+				
+				// float falloff = min(1.0f, dist + n);
+				
+				// return n * (1 - falloff);
+			}
+			
+			float3 v_offset;
+			float3 boundsCenter;
+			
 			// Calculate proportion of light that reaches the given point from the lightsource
-			float lightmarch(float3 position, float3 boundsMin, float3 boundsMax, float dstInsideBox) {
+			float lightmarch(float3 position) {
 				float3 L = _WorldSpaceLightPos0.xyz;
 				
 				float stepSize = rayBox(boundsMin, boundsMax, position, 1 / L).y / lightmarchSteps;
@@ -198,65 +228,60 @@ Shader "Voxel/VoxelShader" {
 
 				for (int i = 0; i < lightmarchSteps; i++) {
 					position += L * stepSize;
-					density += max(0, densityAtPosition(position, dstInsideBox) * stepSize);
+					density += max(0, densityAtPosition(position) * stepSize);
 				}
 
 				float transmit = beer(density * (1 - outScatterMultiplier));
 				return lerp(transmit, 1, transmitThreshold);
 			} 
 			
-			
-			int voxelsCount;
-			
             float4 frag (v2f i) : SV_Target {
-				float3 rayOrigin = i.rayOrigin;
+				float3 rayOrigin = _WorldSpaceCameraPos;
 				float viewLength = length(i.rayDirection);
                 float3 rayDir = i.rayDirection / viewLength;
                 
                 float nonlin_depth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
-                float depth = LinearEyeDepth(nonlin_depth) * viewLength;
+                float sceneDepth = LinearEyeDepth(nonlin_depth) * viewLength;
 				
-				float2 rayBoxInfo = rayBox(i.boundsMin, i.boundsMax, rayOrigin, 1/rayDir);
+				float2 rayBoxInfo = rayBox(boundsMin, boundsMax, rayOrigin, 1/rayDir);
 				
-				float dstToBox = rayBoxInfo.x;
-				float dstInsideBox = rayBoxInfo.y;
+				if (rayBoxInfo.y == 0)
+					return tex2D(_MainTex, i.uv); 
 				
-				if (dstInsideBox == 0) {
-					return 0;
-				}
-				
-				const float halfExtends = _VoxelScale * 0.5;
-				
-				
-				float3 entryPoint = rayOrigin + rayDir * dstToBox;
-				
+				float3 entryPos = rayOrigin + rayDir * rayBoxInfo.x;
+					
 				// Henyey-Greenstein scatter
 				float scatter = hgScatter(dot(rayDir, _WorldSpaceLightPos0.xyz));
 
 				// Blue Noise
-				float randomOffset = BlueNoise.SampleLevel(samplerBlueNoise, scaleUV(i.screenSpaceUV, 72), 0);
+				float randomOffset = BlueNoise.SampleLevel(samplerBlueNoise, scaleUV(i.uv, 72), 0);
 				float offset = randomOffset * rayOffset;
 
-				float stepLimit = min(depth - dstToBox, dstInsideBox);
+				float stepLimit = min(sceneDepth - rayBoxInfo.x, rayBoxInfo.y);
 				
-				float stepSize = dstInsideBox / marchSteps; 
+				float stepSize = rayBoxInfo.y / marchSteps; 
 				float transmit = 1;
-
+				
 				float3 I = 0; // Illumination
 				
-				for (float steps = offset; steps < stepLimit; steps+=stepSize) {
-					float3 p = entryPoint + rayDir * steps;
-					float density = densityAtPosition(p, dstInsideBox);
-
-					if (density > 0) {
-						I += density * transmit * lightmarch(p, boundsMin, boundsMax, dstInsideBox) * scatter;
-						transmit *= beer(density  * (1 - inScatterMultiplier));
+				[loop]
+				for (float steps = offset; steps < stepLimit; steps += stepSize) {
+					float3 samplePos = entryPos + rayDir * steps;
+					float sampleDensity = 0;
+					
+					float3 uvw = world_to_box(samplePos, boundsMin, boundsExtent);
+					
+					if (tex3Dlod(voxelGrid, float4(uvw, 0)).r >= v_offset.x)
+						sampleDensity = densityAtPosition(samplePos);
+					
+					if (sampleDensity > 0) {
+						I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
+						transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
 					}
 				}
                 
-                float3 color = (I * _LightColor0 * scatterColor) + transmit;
-				
-				return float4(color, clamp((1-transmit)*3, 0, 1));
+                float3 color = (I * _LightColor0 * scatterColor) + tex2D(_MainTex, i.uv) * transmit;
+				return float4 (color, 0);
             }
 
             ENDCG

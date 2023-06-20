@@ -5,14 +5,17 @@ using UnityEngine;
 public class Raymarcher : MonoBehaviour {
     public static Raymarcher Instance;
 
-    [Header("Editor preview")]
-    public Material editorMaterial;
-    public Bounds editorBounds;
+    public Material Material;
+    public Bounds GlobalBounds;
+
+    public bool Debug;
 
     [Header("Main")]
+    public float radius = 10;
     public float cloudScale = 1;
     public float densityMultiplier = 2.8f;
     public float densityOffset = 13.23f;
+    public float densityFalloff = 1;
     public int marchSteps = 8;
     public int lightmarchSteps = 8;
     public float rayOffset = 50;
@@ -27,95 +30,98 @@ public class Raymarcher : MonoBehaviour {
     public float scatterMultiplier = 1;
     public Vector3 cloudSpeed = new Vector3(0.2f, 0f, 0.1f);
 
-    private List<VoxelSphere> voxelSpheres = new List<VoxelSphere>();
-    private bool isEven;
+    public List<VoxelSphere.VoxelData> GlobalVoxels = new List<VoxelSphere.VoxelData>();
+    public List<VoxelSphere.VoxelData> RealtimeVoxels = new List<VoxelSphere.VoxelData>();
+    public int LatestSphereID;
+
+    private ComputeBuffer m_voxelsBuffer;
+
+    public Texture3D VoxelsGrid;
 
     private void OnEnable() {
         Instance = this;
     }
 
-    private void OnDisable() {
-        voxelSpheres.Clear();
-    }
-
     private void OnDrawGizmos() {
         Gizmos.color = Color.yellow;
-        Gizmos.DrawWireCube(editorBounds.center, editorBounds.size);
+        Gizmos.DrawWireCube(GlobalBounds.center, GlobalBounds.size);
+    }
+    public Vector3 offset;
+    public void UpdateVoxelGrid() {
+        // TODO: improve
+
+        VoxelsGrid = new Texture3D(Mathf.CeilToInt(GlobalBounds.size.x),
+            Mathf.CeilToInt(GlobalBounds.size.y),
+            Mathf.CeilToInt(GlobalBounds.size.z),
+            TextureFormat.RGHalf, 0);
+
+        VoxelsGrid.wrapMode = TextureWrapMode.Clamp;
+
+        foreach (var voxel in GlobalVoxels) {
+            Vector3 voxelPos = voxel.Center + voxel.LocalPosition;
+            Vector3 intVoxelPos = new Vector3((int)voxelPos.x, (int)voxelPos.y, (int)voxelPos.z);
+
+            Vector3 boxPos = new Vector3((int)GlobalBounds.min.x - offset.x, (int)GlobalBounds.min.y - offset.y, (int)GlobalBounds.min.z - offset.z) - intVoxelPos;
+
+            VoxelsGrid.SetPixel((int)Mathf.Abs(boxPos.x), (int)Mathf.Abs(boxPos.y), (int)Mathf.Abs(boxPos.z), Color.red, 0);
+
+            _SmokeOrigin = voxel.Center;
+        }
+
+        VoxelsGrid.Apply();
     }
 
-    public void AddVoxelSphere(VoxelSphere voxelSphere) {
-        voxelSpheres.Add(voxelSphere);
-        isEven = voxelSpheres.Count % 2 == 0;
-    }
-
-    public void RemoveVoxelSphere(VoxelSphere voxelSphere) {
-        voxelSpheres.Remove(voxelSphere);
-        isEven = voxelSpheres.Count % 2 == 0;
-    }
-
-    private void SetSphereProps(Material material, Bounds bounds) {
-        material.SetVector("boundsMin", bounds.min - Vector3.one * 0.2f);
-        material.SetVector("boundsMax", bounds.max + Vector3.one * 0.2f);
-
-        material.SetFloat("scale", cloudScale);
-        material.SetFloat("densityMultiplier", densityMultiplier);
-        material.SetFloat("densityOffset", densityOffset);
-
-        material.SetInt("marchSteps", marchSteps);
-        material.SetInt("lightmarchSteps", lightmarchSteps);
-        material.SetFloat("rayOffset", rayOffset);
-        material.SetTexture("BlueNoise", blueNoise);
-
-        material.SetVector("scatterColor", scatterColor);
-        material.SetFloat("brightness", brightness);
-        material.SetFloat("transmitThreshold", transmitThreshold);
-        material.SetFloat("inScatterMultiplier", inScatterMultiplier);
-        material.SetFloat("outScatterMultiplier", outScatterMultiplier);
-        material.SetFloat("forwardScatter", forwardScattering);
-        material.SetFloat("backwardScatter", backwardScattering);
-        material.SetFloat("scatterMultiplier", scatterMultiplier);
-
-        material.SetVector("cloudSpeed", cloudSpeed);
-    }
+    public Vector3 _SmokeOrigin;
 
     private void OnRenderImage(RenderTexture src, RenderTexture dest) {
-        if (!Application.isPlaying) {
-            if (editorMaterial == null) {
-                Graphics.Blit(src, dest);
-
-                return;
-            }
-
-            SetSphereProps(editorMaterial, editorBounds);
-
-            Graphics.Blit(src, dest, editorMaterial);
+        if (Debug || Material == null || RealtimeVoxels.Count == 0) {
+            Graphics.Blit(src, dest);
 
             return;
         }
 
-        RenderTexture tempSrc = RenderTexture.GetTemporary(src.width, src.height, src.depth, src.format);
-        RenderTexture tempDst = RenderTexture.GetTemporary(src.width, src.height, src.depth, src.format);
+        UpdateVoxelGrid();
 
-        Graphics.Blit(src, tempSrc);
+        Material.SetVector("boundsMin", GlobalBounds.min);
+        Material.SetVector("boundsMax", GlobalBounds.max);
+        Material.SetVector("boundsExtent", GlobalBounds.size);
+        Material.SetVector("boundsCenter", GlobalBounds.center);
 
-        for (int i = 0; i < voxelSpheres.Count; i++) {
-            var sphere = voxelSpheres[i];
-            var mat = sphere.Material;
+        Material.SetVector("_SmokeOrigin", _SmokeOrigin);
 
-            mat.SetBuffer("voxelBuffer", sphere.Voxels);
-            mat.SetInteger("voxelsCount", sphere.Voxels.count);
+        Material.SetFloat("_DensityFalloff", densityFalloff);
+        Material.SetFloat("_Radius", radius);
 
-            SetSphereProps(mat, sphere.Bounds);
+        Material.SetTexture("voxelGrid", VoxelsGrid);
 
-            if (i % 2 == 0)
-                Graphics.Blit(tempSrc, tempDst, mat);
-            else
-                Graphics.Blit(tempDst, tempSrc, mat);
-        }
+        // m_voxelsBuffer = new ComputeBuffer(RealtimeVoxels.Count, VoxelSphere.VoxelData.SIZE);
+        // m_voxelsBuffer.SetData(RealtimeVoxels);
 
-        Graphics.Blit(isEven ? tempSrc : tempDst, dest);
+        // Material.SetBuffer("voxelBuffer", m_voxelsBuffer);
+        // Material.SetInt("voxelsCount", RealtimeVoxels.Count);
 
-        RenderTexture.ReleaseTemporary(tempSrc);
-        RenderTexture.ReleaseTemporary(tempDst);
+        // m_voxelsBuffer.Release();
+
+        Material.SetFloat("scale", cloudScale);
+        Material.SetFloat("densityMultiplier", densityMultiplier);
+        Material.SetFloat("densityOffset", densityOffset);
+
+        Material.SetInt("marchSteps", marchSteps);
+        Material.SetInt("lightmarchSteps", lightmarchSteps);
+        Material.SetFloat("rayOffset", rayOffset);
+        Material.SetTexture("BlueNoise", blueNoise);
+
+        Material.SetVector("scatterColor", scatterColor);
+        Material.SetFloat("brightness", brightness);
+        Material.SetFloat("transmitThreshold", transmitThreshold);
+        Material.SetFloat("inScatterMultiplier", inScatterMultiplier);
+        Material.SetFloat("outScatterMultiplier", outScatterMultiplier);
+        Material.SetFloat("forwardScatter", forwardScattering);
+        Material.SetFloat("backwardScatter", backwardScattering);
+        Material.SetFloat("scatterMultiplier", scatterMultiplier);
+
+        Material.SetVector("cloudSpeed", cloudSpeed);
+
+        Graphics.Blit(src, dest, Material);
     }
 }

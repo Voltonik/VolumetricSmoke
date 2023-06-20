@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using MyBox;
 using UnityEngine;
 
@@ -14,15 +16,24 @@ public class VoxelSphere {
         }
     }
 
+    [Serializable]
     public struct VoxelData {
         public Vector3 LocalPosition;
+        public Vector3 Center;
+        public int SphereID;
+        public Vector3 Color;
 
-        public VoxelData(Vector3 position) {
+        public VoxelData(Vector3 position, Vector3 center, int sphereID, Color color = default(Color)) {
             LocalPosition = position;
+            Center = center;
+            SphereID = sphereID;
+            Color = new Vector3(color.r, color.g, color.b);
         }
 
         public static int SIZE = System.Runtime.InteropServices.Marshal.SizeOf(typeof(VoxelData));
     }
+
+    public Texture3D VoxelGrid;
 
     private Vector3 m_center;
     private float m_maxRadius;
@@ -31,22 +42,17 @@ public class VoxelSphere {
     private AnimationCurve m_growthCurve;
     private float m_growthTime;
 
+    public int SphereID;
+
     private Material m_material;
     private ComputeBuffer m_voxelBuffer;
-    // private ComputeBuffer m_argsBuffer;
+    private ComputeBuffer m_argsBuffer;
 
     private List<VoxelData> m_voxels = new List<VoxelData>();
-    // private List<Voxel> m_voxelsToTransition = new List<Voxel>();
+    private List<Voxel> m_voxelsToTransition = new List<Voxel>();
     private Dictionary<Vector3, Voxel> m_voxelsCache = new Dictionary<Vector3, Voxel>();
-    private Bounds m_bounds = new Bounds();
 
-    // private bool m_running;
-
-
-    public ComputeBuffer Voxels { get => m_voxelBuffer; }
-    public Bounds Bounds { get => m_bounds; }
-    public Material Material { get => m_material; }
-
+    private bool m_running;
 
     public VoxelSphere(Vector3 center, float radius, Mesh voxelMesh, float voxelScale = 1, float growthSpeed = 0.9f, AnimationCurve growthCurve = null) {
         m_center = center + new Vector3(0, voxelScale / 2, 0);
@@ -59,27 +65,28 @@ public class VoxelSphere {
         if (growthCurve == null)
             growthCurve = AnimationCurve.Linear(0, 0, 1, 1);
 
-
-        m_bounds = new Bounds(m_center, Vector3.zero);
-
-        m_material = new Material(Shader.Find("Voxel/VoxelShader"));
+        m_material = new Material(Shader.Find("Voxel/VoxelDebugShader"));
         m_material.SetFloat("_VoxelScale", m_voxelScale);
 
-        Raymarcher.Instance.AddVoxelSphere(this);
+        Raymarcher.Instance.LatestSphereID++;
+        SphereID = Raymarcher.Instance.LatestSphereID;
 
         CalculateSphere();
+
+        Raymarcher.Instance.UpdateVoxelGrid();
+
+        Explode();
     }
 
     private void AddVoxel(Voxel v) {
         m_voxelsCache.Add(v.LocalPosition, v);
-        m_voxels.Add(new VoxelData(v.LocalPosition + m_center));
 
-        m_bounds.Encapsulate(new Bounds(v.LocalPosition + m_center, Vector3.one * m_voxelScale));
+        Raymarcher.Instance.GlobalVoxels.Add(new VoxelData(v.LocalPosition, m_center, SphereID));
 
-        m_voxelBuffer?.Release();
-        m_voxelBuffer = new ComputeBuffer(m_voxels.Count, VoxelData.SIZE);
-
-        m_voxelBuffer.SetData(m_voxels);
+        if (Raymarcher.Instance.GlobalBounds.size == Vector3.zero)
+            Raymarcher.Instance.GlobalBounds = new Bounds(v.LocalPosition + m_center, Vector3.one * m_voxelScale);
+        else
+            Raymarcher.Instance.GlobalBounds.Encapsulate(new Bounds(v.LocalPosition + m_center, Vector3.one * m_voxelScale));
     }
 
     private void CalculateSphere() {
@@ -207,81 +214,83 @@ public class VoxelSphere {
     }
 
     public void Reset() {
-        // m_argsBuffer?.Release();
-        // m_argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
+        m_argsBuffer?.Release();
+        m_argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
 
-        // m_voxels.Clear();
 
-        // m_voxelsToTransition = m_voxelsCache.Values.OrderBy(v => v.Order).ToList();
+        m_voxelsToTransition = m_voxelsCache.Values.OrderBy(v => v.Order).ToList();
 
-        // m_running = true;
+        m_running = true;
     }
 
-    // public async void Explode() {
-    //     Reset();
+    public async void Explode() {
+        Reset();
 
-    //     float t = 0;
-    //     int prev_i = 0;
-    //     bool animating = true;
+        float t = 0;
+        int prev_i = 0;
+        bool animating = true;
 
-    //     Bounds renderBounds = new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius));
-    //     Bounds bounds = new Bounds(m_center, Vector3.zero);
+        Bounds renderBounds = new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius));
+        Bounds bounds = new Bounds(m_center, Vector3.zero);
 
-    //     while (Application.isPlaying && m_running) {
-    //         if (animating && t <= m_growthTime) {
-    //             float normalizedTime = t / m_growthTime;
+        while (Application.isPlaying && m_running) {
+            if (animating && t <= m_growthTime) {
+                float normalizedTime = t / m_growthTime;
 
-    //             int starting_i = prev_i + 1;
-    //             int end_i = Mathf.RoundToInt(m_voxelsToTransition.Count * normalizedTime);
+                int starting_i = prev_i + 1;
+                int end_i = Mathf.RoundToInt(m_voxelsToTransition.Count * normalizedTime);
 
-    //             for (int i = starting_i; i < end_i; i++) {
-    //                 prev_i = i;
+                for (int i = starting_i; i < end_i; i++) {
+                    prev_i = i;
 
-    //                 VoxelData voxel = new VoxelData(m_voxelsToTransition[i].LocalPosition);
-    //                 m_voxels.Add(voxel);
+                    var voxelData = new VoxelData(m_voxelsToTransition[i].LocalPosition, m_center, SphereID, UnityEngine.Random.ColorHSV());
 
-    //                 bounds.Encapsulate(new Bounds(voxel.LocalPosition + m_center, Vector3.one * m_voxelScale));
+                    Raymarcher.Instance.RealtimeVoxels.Add(voxelData);
 
-    //                 m_voxelBuffer?.Release();
-    //                 m_voxelBuffer = new ComputeBuffer(m_voxels.Count, VoxelData.SIZE);
+                    m_voxels.Add(voxelData);
 
-    //                 m_voxelBuffer.SetData(m_voxels);
-    //                 m_material.SetBuffer("voxelBuffer", m_voxelBuffer);
-    //                 m_material.SetInt("voxelsCount", m_voxels.Count);
+                    bounds.Encapsulate(new Bounds(voxelData.LocalPosition + m_center, Vector3.one * m_voxelScale));
 
-    //                 uint[] args = new uint[5] {
-    //                     (uint)m_voxelMesh.GetIndexCount(0),
-    //                     (uint)m_voxels.Count,
-    //                     (uint)m_voxelMesh.GetIndexStart(0),
-    //                     (uint)m_voxelMesh.GetBaseVertex(0),
-    //                     0
-    //                 };
+                    if (Raymarcher.Instance.Debug) {
+                        m_voxelBuffer?.Release();
+                        m_voxelBuffer = new ComputeBuffer(m_voxels.Count, VoxelData.SIZE);
 
-    //                 m_argsBuffer.SetData(args);
-    //             }
+                        m_voxelBuffer.SetData(m_voxels);
+                        m_material.SetBuffer("voxelBuffer", m_voxelBuffer);
+                        m_material.SetInt("voxelsCount", m_voxels.Count);
 
-    //             float next_t = Mathf.Clamp(t + Time.deltaTime * (1 - m_growthCurve.Evaluate(t)), 0.001f, m_growthTime);
+                        uint[] args = new uint[5] {
+                            (uint)m_voxelMesh.GetIndexCount(0),
+                            (uint)m_voxels.Count,
+                            (uint)m_voxelMesh.GetIndexStart(0),
+                            (uint)m_voxelMesh.GetBaseVertex(0),
+                            0
+                        };
 
-    //             if (next_t == m_growthTime)
-    //                 animating = false;
-    //             else
-    //                 t = next_t;
-    //         }
+                        m_argsBuffer.SetData(args);
+                    }
+                }
 
-    //         Raymarcher.Instance.UpdateVoxels(m_voxels, bounds);
-    //         Graphics.DrawMeshInstancedIndirect(m_voxelMesh, 0, m_material, renderBounds, m_argsBuffer);
+                float next_t = Mathf.Clamp(t + Time.deltaTime * (1 - m_growthCurve.Evaluate(t)), 0.001f, m_growthTime);
 
-    //         await Task.Yield();
-    //     }
+                if (next_t == m_growthTime)
+                    animating = false;
+                else
+                    t = next_t;
+            }
 
-    //     Clean();
-    // }
+            if (Raymarcher.Instance.Debug)
+                Graphics.DrawMeshInstancedIndirect(m_voxelMesh, 0, m_material, renderBounds, m_argsBuffer);
+
+            await Task.Yield();
+        }
+
+        Destroy();
+    }
 
     public void Destroy() {
-        Raymarcher.Instance.RemoveVoxelSphere(this);
-
-        m_voxelBuffer?.Release();
-        m_voxelBuffer = null;
+        Raymarcher.Instance.RealtimeVoxels.RemoveAll(v => v.SphereID == SphereID);
+        Raymarcher.Instance.GlobalVoxels.RemoveAll(v => v.SphereID == SphereID);
     }
 
     ~VoxelSphere() {
