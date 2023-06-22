@@ -31,7 +31,6 @@ public class Raymarcher : MonoBehaviour {
     public Vector3 cloudSpeed = new Vector3(0.2f, 0f, 0.1f);
 
     public List<VoxelSphere.VoxelData> GlobalVoxels = new List<VoxelSphere.VoxelData>();
-    public List<VoxelSphere.VoxelData> RealtimeVoxels = new List<VoxelSphere.VoxelData>();
     public int LatestSphereID;
 
     private ComputeBuffer m_voxelsBuffer;
@@ -58,7 +57,7 @@ public class Raymarcher : MonoBehaviour {
         VoxelsGrid.wrapMode = TextureWrapMode.Clamp;
 
         foreach (var voxel in GlobalVoxels)
-            UpdateVoxelGrid(voxel, 1, false);
+            UpdateVoxelGrid(voxel, -1, false);
 
         VoxelsGrid.Apply();
 
@@ -76,8 +75,9 @@ public class Raymarcher : MonoBehaviour {
 
         Vector3Int boxPos = new Vector3Int((int)(GlobalBounds.min.x - offset.x), (int)(GlobalBounds.min.y - offset.y), (int)(GlobalBounds.min.z - offset.z)) - intVoxelPos;
 
-        float r = 1 - ((voxel.LocalPosition).sqrMagnitude / (furthestVoxel * furthestVoxel));
-
+        float r = furthestVoxel == 0 ? 1 : ((furthestVoxel + radius) / (voxel.LocalPosition).sqrMagnitude);
+        if (furthestVoxel == -1)
+            r = 1;
         VoxelsGrid.SetPixel(Mathf.Abs(boxPos.x), Mathf.Abs(boxPos.y), Mathf.Abs(boxPos.z), new Color(1, r, 0), 0);
 
         _SmokeOrigin = voxel.Center;
@@ -103,11 +103,12 @@ public class Raymarcher : MonoBehaviour {
     }
 
     private void OnRenderImage(RenderTexture src, RenderTexture dest) {
-        if (Debug || Material == null || RealtimeVoxels.Count == 0) {
+        if (Debug || Material == null || GlobalBounds.size.x == 0 || GlobalBounds.size.y == 0 || GlobalBounds.size.z == 0) {
             Graphics.Blit(src, dest);
 
             return;
         }
+        // UpdateGridSize();
 
         RenderTexture buffer = RenderTexture.GetTemporary(src.width / 4, src.height / 4, 0);
 

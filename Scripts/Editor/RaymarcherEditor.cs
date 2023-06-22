@@ -30,15 +30,15 @@ public class RaymarcherEditor : Editor {
 
         slice = EditorGUILayout.IntSlider(slice, 0, tex.depth - 1);
 
-        // var oldColor = GUI.color;
-        // for (int y = 0; y < tex.height; y++) {
-        //     EditorGUILayout.BeginHorizontal();
-        //     for (int x = 0; x < tex.width; x++) {
-        //         GUI.color = tex.GetPixel(x, y, slice).r == 1 ? Color.black : Color.white;
-        //         GUILayout.Box($"      ");
-        //     }
-        //     EditorGUILayout.EndHorizontal();
-        // }
-        // GUI.color = oldColor;
+        var oldColor = GUI.color;
+        for (int y = 0; y < tex.height; y++) {
+            EditorGUILayout.BeginHorizontal();
+            for (int x = 0; x < tex.width; x++) {
+                GUI.color = new Color(tex.GetPixel(x, y, slice).r, tex.GetPixel(x, y, slice).g, 0);
+                GUILayout.Box($"      ");
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+        GUI.color = oldColor;
     }
 }

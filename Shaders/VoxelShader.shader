@@ -176,42 +176,35 @@ Shader "Voxel/VoxelShader" {
 			
 			float3 SnapToGrid(float3 position, float gridSize) {
 				float3 snappedPosition = float3(
-					floor(position.x / gridSize) * gridSize,
-					floor(position.y / gridSize) * gridSize,
-					floor(position.z / gridSize) * gridSize
+					round(position.x / gridSize) * gridSize + gridSize / 2,
+					round(position.y / gridSize) * gridSize + gridSize / 2,
+					round(position.z / gridSize) * gridSize + gridSize / 2
 				);
 				return snappedPosition;
 			}
 			
-			float3 world_to_box(float3 world_pos, float3 box_pos, float3 box_size) {
-				return (world_pos - box_pos) / box_size;
+			float3 world_to_box(float3 world_pos, float3 box_pos, float3 box_size, bool snap = true) {
+				float3 relativePos = snap ? SnapToGrid(world_pos - box_pos, 1) : world_pos - box_pos;
+				return relativePos / box_size;
 			}
 
 			float densityAtPosition(float3 rayPos) {
 				float n = max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
 				
-				float3 uvw = world_to_box(rayPos, boundsMin, boundsExtent);
-				float v = tex3Dlod(voxelGrid, float4(uvw, 0)).g;
+				float3 uvw = world_to_box(rayPos, boundsMin, boundsExtent, false);
+				float vp = (tex3Dlod(voxelGrid, float4(uvw, 0)).g);
 				
-				float falloff = min(1, smoothstep(_DensityFalloff, 1, min(1.0f, 1 - (v / 16.0f))) + n);
-				
-				return n * (1 - falloff);
-				
-				// float3 vp = rayPos - _SmokeOrigin;
-    			// float3 radius = _Radius - 0.1f;
-				
-				// float3 uvw = world_to_box(rayPos, boundsMin, boundsExtent);
-				// float v = 1 - tex3Dlod(voxelGrid, float4(uvw, 0)).g;
+				// float v = vp;
 	
-				// float dist = min(1.0f, length(vp / radius));
+				float dist = min(1.0f, 1 - vp);
 				// float voxelDist = min(1.0f, 1 - (v / 16.0f));
 				// dist = max(dist, voxelDist);
 	
-				// dist = smoothstep(_DensityFalloff, 1.0f, dist);
+				dist = smoothstep(_DensityFalloff, 1.0f, dist);
 				
-				// float falloff = min(1.0f, dist + n);
+				float falloff = min(1.0f, dist + n);
 				
-				// return n * (1 - falloff);
+				return 1 - falloff;
 			}
 			
 			float3 v_offset;
@@ -270,11 +263,11 @@ Shader "Voxel/VoxelShader" {
 					
 					float3 uvw = world_to_box(samplePos, boundsMin, boundsExtent);
 					
-					if (tex3Dlod(voxelGrid, float4(uvw, 0)).r >= -20)
-						sampleDensity = densityAtPosition(samplePos);
+					if (saturate(tex3Dlod(voxelGrid, float4(uvw, 0)).r) == 1)
+						sampleDensity = 1;
 					
 					if (sampleDensity > 0) {
-						I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
+						I += sampleDensity * transmit * 1 * scatter;
 						transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
 					}
 				}

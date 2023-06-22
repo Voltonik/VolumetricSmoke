@@ -89,10 +89,11 @@ public class VoxelSphere {
             Raymarcher.Instance.GlobalBounds.Encapsulate(new Bounds(v.LocalPosition + m_center, Vector3.one * m_voxelScale));
     }
 
+    int maxRadius = 0;
+
     private void CalculateSphere() {
         int r = Mathf.RoundToInt(m_maxRadius / m_voxelScale);
         int deleted = 0;
-        int maxRadius = 0;
 
         List<Voxel> outLayerVoxels = new List<Voxel>();
 
@@ -233,7 +234,12 @@ public class VoxelSphere {
         Bounds renderBounds = new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius));
         Bounds bounds = new Bounds(m_center, Vector3.zero);
 
-        float furthestVoxel = 0;
+        float furthestVoxel = maxRadius + 1;
+
+        var centerVoxel = new VoxelData(Vector3.zero, m_center, furthestVoxel, SphereID, UnityEngine.Random.ColorHSV());
+
+        Raymarcher.Instance.GlobalVoxels.Add(centerVoxel);
+        Raymarcher.Instance.UpdateVoxelGrid(centerVoxel, furthestVoxel);
 
         while (Application.isPlaying && m_running) {
             if (animating && t <= m_growthTime) {
@@ -248,12 +254,10 @@ public class VoxelSphere {
 
                     float vMag = m_voxelsToTransition[i].LocalPosition.sqrMagnitude;
 
-                    if (vMag > furthestVoxel)
+                    if (vMag < furthestVoxel)
                         furthestVoxel = vMag;
 
                     var voxelData = new VoxelData(m_voxelsToTransition[i].LocalPosition, m_center, furthestVoxel, SphereID, UnityEngine.Random.ColorHSV());
-
-                    Raymarcher.Instance.RealtimeVoxels.Add(voxelData);
 
                     m_debugVoxels.Add(voxelData);
 
@@ -300,7 +304,6 @@ public class VoxelSphere {
     }
 
     public void Destroy() {
-        Raymarcher.Instance.RealtimeVoxels.RemoveAll(v => v.SphereID == SphereID);
         Raymarcher.Instance.GlobalVoxels.RemoveAll(v => v.SphereID == SphereID);
     }
 
