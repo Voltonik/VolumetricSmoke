@@ -234,12 +234,10 @@ public class VoxelSphere {
         Bounds renderBounds = new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius));
         Bounds bounds = new Bounds(m_center, Vector3.zero);
 
-        float furthestVoxel = maxRadius + 1;
-
-        var centerVoxel = new VoxelData(Vector3.zero, m_center, furthestVoxel, SphereID, UnityEngine.Random.ColorHSV());
+        var centerVoxel = new VoxelData(Vector3.zero, m_center, maxRadius, SphereID, UnityEngine.Random.ColorHSV());
 
         Raymarcher.Instance.GlobalVoxels.Add(centerVoxel);
-        Raymarcher.Instance.UpdateVoxelGrid(centerVoxel, furthestVoxel);
+        Raymarcher.Instance.UpdateVoxelGrid(centerVoxel, maxRadius, 0);
 
         while (Application.isPlaying && m_running) {
             if (animating && t <= m_growthTime) {
@@ -251,20 +249,14 @@ public class VoxelSphere {
                 for (int i = starting_i; i < end_i; i++) {
                     prev_i = i;
 
-
-                    float vMag = m_voxelsToTransition[i].LocalPosition.sqrMagnitude;
-
-                    if (vMag < furthestVoxel)
-                        furthestVoxel = vMag;
-
-                    var voxelData = new VoxelData(m_voxelsToTransition[i].LocalPosition, m_center, furthestVoxel, SphereID, UnityEngine.Random.ColorHSV());
+                    var voxelData = new VoxelData(m_voxelsToTransition[i].LocalPosition, m_center, maxRadius, SphereID, UnityEngine.Random.ColorHSV());
 
                     m_debugVoxels.Add(voxelData);
 
                     bounds.Encapsulate(new Bounds(voxelData.LocalPosition + m_center, Vector3.one * m_voxelScale));
 
                     Raymarcher.Instance.GlobalVoxels.Add(voxelData);
-                    Raymarcher.Instance.UpdateVoxelGrid(voxelData, furthestVoxel);
+                    Raymarcher.Instance.UpdateVoxelGrid(voxelData, maxRadius, normalizedTime);
 
                     if (Raymarcher.Instance.Debug) {
                         m_voxelBuffer?.Release();

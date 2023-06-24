@@ -12,9 +12,9 @@ public class RaymarcherEditor : Editor {
 
     public static Vector3 SnapToGrid(Vector3 position, float gridSize) {
         Vector3 snappedPosition = new Vector3(
-            Mathf.Floor(position.x / gridSize) * gridSize,
-            Mathf.Floor(position.y / gridSize) * gridSize,
-            Mathf.Floor(position.z / gridSize) * gridSize
+            Mathf.Round(position.x / gridSize) * gridSize + gridSize / 2,
+            Mathf.Round(position.y / gridSize) * gridSize + gridSize / 2,
+            Mathf.Round(position.z / gridSize) * gridSize + gridSize / 2
         );
         return snappedPosition;
     }

@@ -57,7 +57,7 @@ public class Raymarcher : MonoBehaviour {
         VoxelsGrid.wrapMode = TextureWrapMode.Clamp;
 
         foreach (var voxel in GlobalVoxels)
-            UpdateVoxelGrid(voxel, -1, false);
+            UpdateVoxelGrid(voxel, -1, 1, false);
 
         VoxelsGrid.Apply();
 
@@ -68,7 +68,7 @@ public class Raymarcher : MonoBehaviour {
         Material.SetVector("boundsExtent", GlobalBounds.size);
     }
 
-    public void UpdateVoxelGrid(VoxelSphere.VoxelData voxel, float furthestVoxel, bool apply = true) {
+    public void UpdateVoxelGrid(VoxelSphere.VoxelData voxel, float furthestVoxel, float normalizedTime, bool apply = true) {
         // TODO: improve
         Vector3 voxelPos = voxel.Center + voxel.LocalPosition;
         Vector3Int intVoxelPos = new Vector3Int((int)voxelPos.x, (int)voxelPos.y, (int)voxelPos.z);
@@ -78,7 +78,7 @@ public class Raymarcher : MonoBehaviour {
         float r = furthestVoxel == 0 ? 1 : ((furthestVoxel + radius) / (voxel.LocalPosition).sqrMagnitude);
         if (furthestVoxel == -1)
             r = 1;
-        VoxelsGrid.SetPixel(Mathf.Abs(boxPos.x), Mathf.Abs(boxPos.y), Mathf.Abs(boxPos.z), new Color(1, r, 0), 0);
+        VoxelsGrid.SetPixel(Mathf.Abs(boxPos.x), Mathf.Abs(boxPos.y), Mathf.Abs(boxPos.z), new Color(1, furthestVoxel, normalizedTime), 0);
 
         _SmokeOrigin = voxel.Center;
 
@@ -86,6 +86,9 @@ public class Raymarcher : MonoBehaviour {
             VoxelsGrid.Apply();
 
             Material.SetTexture("voxelGrid", VoxelsGrid);
+            Material.SetVector("_SmokeOrigin", voxel.Center);
+            Material.SetFloat("normalizedTime", normalizedTime);
+            Material.SetFloat("maxRadius", Mathf.Sqrt(furthestVoxel));
         }
     }
 

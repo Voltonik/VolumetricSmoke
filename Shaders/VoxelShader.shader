@@ -187,27 +187,20 @@ Shader "Voxel/VoxelShader" {
 				float3 relativePos = snap ? SnapToGrid(world_pos - box_pos, 1) : world_pos - box_pos;
 				return relativePos / box_size;
 			}
+			
+			float3 v_offset;
+			float normalizedTime;
+			float maxRadius;
 
 			float densityAtPosition(float3 rayPos) {
 				float n = max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
-				
-				float3 uvw = world_to_box(rayPos, boundsMin, boundsExtent, false);
-				float vp = (tex3Dlod(voxelGrid, float4(uvw, 0)).g);
-				
-				// float v = vp;
 	
-				float dist = min(1.0f, 1 - vp);
-				// float voxelDist = min(1.0f, 1 - (v / 16.0f));
-				// dist = max(dist, voxelDist);
-	
-				dist = smoothstep(_DensityFalloff, 1.0f, dist);
+				float falloff = saturate(n + length(rayPos - _SmokeOrigin) - (normalizedTime * maxRadius));
 				
-				float falloff = min(1.0f, dist + n);
-				
-				return 1 - falloff;
+				return n * (1 - falloff);
 			}
 			
-			float3 v_offset;
+			
 			float3 boundsCenter;
 			
 			// Calculate proportion of light that reaches the given point from the lightsource
@@ -264,10 +257,10 @@ Shader "Voxel/VoxelShader" {
 					float3 uvw = world_to_box(samplePos, boundsMin, boundsExtent);
 					
 					if (saturate(tex3Dlod(voxelGrid, float4(uvw, 0)).r) == 1)
-						sampleDensity = 1;
+						sampleDensity = densityAtPosition(samplePos);
 					
 					if (sampleDensity > 0) {
-						I += sampleDensity * transmit * 1 * scatter;
+						I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
 						transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
 					}
 				}
