@@ -21,6 +21,10 @@ Shader "Voxel/VoxelShader" {
             struct voxel {
                 float3 Position;
             };
+			
+			struct VoxelCell {
+				int Occupied;
+			};
 
             struct appdata
 			{
@@ -172,30 +176,20 @@ Shader "Voxel/VoxelShader" {
 			float _Radius;
 			float _DensityFalloff;
 			
-			sampler3D voxelGrid;
-			
-			float3 SnapToGrid(float3 position, float gridSize) {
-				float3 snappedPosition = float3(
-					round(position.x / gridSize) * gridSize + gridSize / 2,
-					round(position.y / gridSize) * gridSize + gridSize / 2,
-					round(position.z / gridSize) * gridSize + gridSize / 2
-				);
-				return snappedPosition;
-			}
-			
-			float3 world_to_box(float3 world_pos, float3 box_pos, float3 box_size, bool snap = true) {
-				float3 relativePos = snap ? SnapToGrid(world_pos - box_pos, 1) : world_pos - box_pos;
-				return relativePos / box_size;
-			}
+			StructuredBuffer<VoxelCell> voxelGrid;
 			
 			float3 v_offset;
 			float normalizedTime;
 			float maxRadius;
+			
+			float stepSize;
+			float lightStepSize;
 
 			float densityAtPosition(float3 rayPos) {
 				float n = max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
-	
-				float falloff = saturate(n + length(rayPos - _SmokeOrigin) - (normalizedTime * maxRadius));
+				
+				float r = length(rayPos - _SmokeOrigin);
+				float falloff = saturate(n + r - (normalizedTime * (maxRadius + v_offset.x)));
 				
 				return n * (1 - falloff);
 			}
@@ -207,62 +201,90 @@ Shader "Voxel/VoxelShader" {
 			float lightmarch(float3 position) {
 				float3 L = _WorldSpaceLightPos0.xyz;
 				
-				float stepSize = rayBox(boundsMin, boundsMax, position, 1 / L).y / lightmarchSteps;
-				
 				float density = 0;
 
 				for (int i = 0; i < lightmarchSteps; i++) {
-					position += L * stepSize;
-					density += max(0, densityAtPosition(position) * stepSize);
+					position += L * lightStepSize;
+					density += max(0, densityAtPosition(position) * lightStepSize);
 				}
 
 				float transmit = beer(density * (1 - outScatterMultiplier));
 				return lerp(transmit, 1, transmitThreshold);
 			} 
 			
+			uint3 VoxelResolution;
+			
+			uint to1D(uint3 pos) {
+				return pos.x + pos.y * VoxelResolution.x + pos.z * VoxelResolution.x * VoxelResolution.y;
+			}
+			
+			float insideBox(float3 v, float3 bottomLeft, float3 topRight) {
+				float3 s = step(bottomLeft, v) - step(topRight, v);
+				return s.x * s.y * s.z;
+			}
+			
+			bool isInsideVoxel(float3 pos) {
+				if (insideBox(pos, boundsMin, boundsMax) == 0)
+					return false;
+				
+				pos -= boundsMin;
+
+				return voxelGrid[to1D(pos)].Occupied == 1;
+			}
+			
+			#define MAX_DISTANCE 200
+			
             float4 frag (v2f i) : SV_Target {
 				float3 rayOrigin = _WorldSpaceCameraPos;
 				float viewLength = length(i.rayDirection);
                 float3 rayDir = i.rayDirection / viewLength;
-                
-                float nonlin_depth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
+				
+				float distanceTraveled = 0;
+				float3 samplePos = rayOrigin + rayDir;
+				bool inVoxel = isInsideVoxel(samplePos);
+				
+				[loop]
+				while (!inVoxel && distanceTraveled < MAX_DISTANCE) {
+					distanceTraveled += 0.4;
+					samplePos = rayOrigin + distanceTraveled * rayDir;
+					inVoxel = isInsideVoxel(samplePos);
+				}
+				
+				if (!inVoxel)
+					return tex2D(_MainTex, i.uv); 
+						
+				// distanceTraveled += 0.4;
+					
+				float nonlin_depth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
                 float sceneDepth = LinearEyeDepth(nonlin_depth) * viewLength;
 				
-				float2 rayBoxInfo = rayBox(boundsMin, boundsMax, rayOrigin, 1/rayDir);
-				
-				if (rayBoxInfo.y == 0)
-					return tex2D(_MainTex, i.uv); 
-				
-				float3 entryPos = rayOrigin + rayDir * rayBoxInfo.x;
-					
 				// Henyey-Greenstein scatter
 				float scatter = hgScatter(dot(rayDir, _WorldSpaceLightPos0.xyz));
 
 				// Blue Noise
-				float randomOffset = BlueNoise.SampleLevel(samplerBlueNoise, scaleUV(i.uv, 72), 0);
-				float offset = randomOffset * rayOffset;
-
-				float stepLimit = min(sceneDepth - rayBoxInfo.x, rayBoxInfo.y);
+				if (rayOffset > 0)
+					distanceTraveled += rayOffset * BlueNoise.SampleLevel(samplerBlueNoise, scaleUV(i.uv, 72), 0);
 				
-				float stepSize = rayBoxInfo.y / marchSteps; 
 				float transmit = 1;
-				
 				float3 I = 0; // Illumination
 				
+				int tries = 0;
+				
 				[loop]
-				for (float steps = offset; steps < stepLimit; steps += stepSize) {
-					float3 samplePos = entryPos + rayDir * steps;
-					float sampleDensity = 0;
+				for (int steps = 0; steps < marchSteps; steps++) {
+					samplePos = rayOrigin + distanceTraveled * rayDir;
 					
-					float3 uvw = world_to_box(samplePos, boundsMin, boundsExtent);
+					if (distanceTraveled >= sceneDepth)
+						break;
 					
-					if (saturate(tex3Dlod(voxelGrid, float4(uvw, 0)).r) == 1)
-						sampleDensity = densityAtPosition(samplePos);
+					float sampleDensity = densityAtPosition(samplePos);
 					
-					if (sampleDensity > 0) {
+					if (sampleDensity > 0.001) {
 						I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
 						transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
 					}
+					
+					distanceTraveled += stepSize;
 				}
                 
                 float3 color = (I * _LightColor0 * scatterColor) + tex2D(_MainTex, i.uv) * transmit;
