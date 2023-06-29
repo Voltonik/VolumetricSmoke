@@ -46,28 +46,28 @@ public class RaymarcherEditor : Editor {
     public override void OnInspectorGUI() {
         base.OnInspectorGUI();
 
-        var script = (Raymarcher)target;
+        // var script = (Raymarcher)target;
 
-        var oldColor = GUI.color;
+        // var oldColor = GUI.color;
 
-        samplePos = EditorGUILayout.Vector3Field("seedPos", samplePos);
+        // samplePos = EditorGUILayout.Vector3Field("seedPos", samplePos);
 
-        if (GUILayout.Button("min"))
-            samplePos = script.GlobalBounds.min;
+        // if (GUILayout.Button("min"))
+        //     samplePos = script.GlobalBounds.min;
 
-        if (GUILayout.Button("max"))
-            samplePos = script.GlobalBounds.max;
+        // if (GUILayout.Button("max"))
+        //     samplePos = script.GlobalBounds.max;
 
-        Vector3 pos = SeedPos(samplePos, script.GlobalBounds.extents, script.GlobalBounds.min, ref script.VoxelsGrid);
+        // Vector3 pos = SeedPos(samplePos, script.GlobalBounds.extents, script.GlobalBounds.min, ref script.VoxelsGrid);
 
-        int i = to1D(pos.ToVector3Int(), script.VoxelResolution);
+        // int i = to1D(pos.ToVector3Int(), script.VoxelResolution);
 
-        if (i >= 0 && i < script.VoxelsGrid.Length)
-            GUI.color = script.VoxelsGrid[i].Occupied == 1 ? Color.black : Color.white;
+        // if (i >= 0 && i < script.VoxelsGrid.Length)
+        //     GUI.color = script.VoxelsGrid[i].Occupied == 1 ? Color.black : Color.white;
 
-        GUILayout.Box($"{pos}");
-        GUILayout.Box($"{i}");
+        // GUILayout.Box($"{pos}");
+        // GUILayout.Box($"{i}");
 
-        GUI.color = oldColor;
+        // GUI.color = oldColor;
     }
 }

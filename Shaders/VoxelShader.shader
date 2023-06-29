@@ -184,33 +184,6 @@ Shader "Voxel/VoxelShader" {
 			
 			float stepSize;
 			float lightStepSize;
-
-			float densityAtPosition(float3 rayPos) {
-				float n = max(0, FBM(rayPos + cloudSpeed*_Time.x, scale) - densityOffset) * densityMultiplier;
-				
-				float r = length(rayPos - _SmokeOrigin);
-				float falloff = saturate(n + r - (normalizedTime * (maxRadius + v_offset.x)));
-				
-				return n * (1 - falloff);
-			}
-			
-			
-			float3 boundsCenter;
-			
-			// Calculate proportion of light that reaches the given point from the lightsource
-			float lightmarch(float3 position) {
-				float3 L = _WorldSpaceLightPos0.xyz;
-				
-				float density = 0;
-
-				for (int i = 0; i < lightmarchSteps; i++) {
-					position += L * lightStepSize;
-					density += max(0, densityAtPosition(position) * lightStepSize);
-				}
-
-				float transmit = beer(density * (1 - outScatterMultiplier));
-				return lerp(transmit, 1, transmitThreshold);
-			} 
 			
 			uint3 VoxelResolution;
 			
@@ -231,6 +204,34 @@ Shader "Voxel/VoxelShader" {
 
 				return voxelGrid[to1D(pos)].Occupied == 1;
 			}
+
+			float densityAtPosition(float3 rayPos) {
+				float n = max(0, FBM(rayPos + cloudSpeed * _Time.x, scale) - densityOffset) * densityMultiplier;
+				
+				float r = length(rayPos - _SmokeOrigin);
+				
+				float falloff = 1 - saturate(n + r - (normalizedTime * (maxRadius + v_offset.x)));
+				
+				return n * falloff;
+			}
+			
+			
+			float3 boundsCenter;
+			
+			// Calculate proportion of light that reaches the given point from the lightsource
+			float lightmarch(float3 position) {
+				float3 L = _WorldSpaceLightPos0.xyz;
+				
+				float density = 0;
+
+				for (int i = 0; i < lightmarchSteps; i++) {
+					position += L * lightStepSize;
+					density += max(0, densityAtPosition(position) * lightStepSize);
+				}
+
+				float transmit = beer(density * (1 - outScatterMultiplier));
+				return lerp(transmit, 1, transmitThreshold);
+			} 
 			
 			#define MAX_DISTANCE 200
 			
@@ -278,9 +279,11 @@ Shader "Voxel/VoxelShader" {
 						break;
 					
 					float sampleDensity = densityAtPosition(samplePos);
+					// float sampleDensity = 1;
 					
 					if (sampleDensity > 0.001) {
 						I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
+						// I += sampleDensity * transmit * 1 * scatter;
 						transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
 					}
 					
@@ -288,7 +291,7 @@ Shader "Voxel/VoxelShader" {
 				}
                 
                 float3 color = (I * _LightColor0 * scatterColor) + tex2D(_MainTex, i.uv) * transmit;
-				return float4 (color, 0);
+				return float4 (color, 1 - transmit);
             }
 
             ENDCG

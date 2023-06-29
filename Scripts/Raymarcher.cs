@@ -6,9 +6,16 @@ using UnityEngine;
 public class Raymarcher : MonoBehaviour {
     public static Raymarcher Instance;
 
-    public Material Material;
+    public Material Material, CompositingMaterial;
     public Bounds GlobalBounds;
     public Vector3Int VoxelResolution;
+
+    public enum RenderResolution {
+        FullResolution,
+        HalfResolution,
+        QuarterResolution
+    }
+    public RenderResolution ResolutionScale;
 
     public bool Debug;
 
@@ -42,6 +49,8 @@ public class Raymarcher : MonoBehaviour {
 
     public Vector3 offset;
 
+    public RenderTexture SmokeRT;
+
     [System.Serializable]
     public struct VoxelCell {
         public int Occupied;
@@ -53,6 +62,28 @@ public class Raymarcher : MonoBehaviour {
 
     private void OnEnable() {
         Instance = this;
+    }
+
+    private void Start() {
+        switch (ResolutionScale) {
+            case RenderResolution.FullResolution:
+                SmokeRT = new RenderTexture(Mathf.CeilToInt(Screen.width), Mathf.CeilToInt(Screen.height), 0, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+                SmokeRT.Create();
+
+                break;
+            case RenderResolution.HalfResolution:
+                SmokeRT = new RenderTexture(Mathf.CeilToInt(Screen.width / 2), Mathf.CeilToInt(Screen.height / 2), 0, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+                SmokeRT.Create();
+
+                break;
+            case RenderResolution.QuarterResolution:
+                SmokeRT = new RenderTexture(Mathf.CeilToInt(Screen.width / 4), Mathf.CeilToInt(Screen.height / 4), 0, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+                SmokeRT.Create();
+
+                break;
+        }
+
+
     }
 
     private void OnDrawGizmos() {
@@ -88,7 +119,7 @@ public class Raymarcher : MonoBehaviour {
         // TODO: improve
         Vector3 voxelPos = (voxel.Center + voxel.LocalPosition) - GlobalBounds.min;
 
-        Vector3Int boxPos = new Vector3Int((int)voxelPos.x - 1, (int)voxelPos.y, (int)voxelPos.z);
+        Vector3Int boxPos = new Vector3Int((int)voxelPos.x, (int)voxelPos.y, (int)voxelPos.z);
 
         int yOffset = boxPos.y * VoxelResolution.x;
         int zOffset = boxPos.z * VoxelResolution.x * VoxelResolution.y;
@@ -105,28 +136,12 @@ public class Raymarcher : MonoBehaviour {
         }
     }
 
-    // Downsamples the texture to a quarter resolution.
-    private void DownSample4x(RenderTexture source, RenderTexture dest) {
-        float off = 1.0f;
-        Graphics.BlitMultiTap(source, dest, Material,
-            new Vector2(-off, -off),
-            new Vector2(-off, off),
-            new Vector2(off, off),
-            new Vector2(off, -off)
-        );
-    }
-
     private void OnRenderImage(RenderTexture src, RenderTexture dest) {
         if (Debug || Material == null || GlobalBounds.size.x == 0 || GlobalBounds.size.y == 0 || GlobalBounds.size.z == 0) {
             Graphics.Blit(src, dest);
 
             return;
         }
-        UpdateGridSize();
-
-        RenderTexture buffer = RenderTexture.GetTemporary(src.width / 4, src.height / 4, 0);
-
-        DownSample4x(src, buffer);
 
         Material.SetFloat("_DensityFalloff", densityFalloff);
         Material.SetFloat("_Radius", radius);
@@ -153,6 +168,10 @@ public class Raymarcher : MonoBehaviour {
 
         Material.SetVector("cloudSpeed", cloudSpeed);
 
-        Graphics.Blit(src, dest, Material);
+        Graphics.Blit(SmokeRT, SmokeRT, Material);
+
+        CompositingMaterial.SetTexture("_SecondTex", SmokeRT);
+
+        Graphics.Blit(src, dest, CompositingMaterial);
     }
 }
