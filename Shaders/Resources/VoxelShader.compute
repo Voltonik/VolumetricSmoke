@@ -1,0 +1,244 @@
+#pragma kernel CSMain
+#include "UnityCG.cginc"
+
+RWTexture2DArray<float4> SmokesArrayResult;
+RWTexture2DArray<float> SmokeDepthResult;
+int SmokeArrayIndex;
+
+float3 _VoxelResolution;
+int voxelsCount;
+float3 boundsMin, boundsMax, boundsSize;
+
+Texture2D<float4> _MainTex;
+SamplerState sampler_MainTex;
+
+// Noise
+float scale;
+float densityMultiplier;
+float densityOffset;
+
+// Ray-March
+int marchSteps;
+int lightmarchSteps;
+float rayOffset;
+Texture2D<float4> BlueNoise;
+SamplerState samplerBlueNoise;
+
+// Lighting 
+float3 _WorldSpaceLightDir;
+float4 scatterColor;
+float brightness;
+float transmitThreshold;
+float inScatterMultiplier;
+float outScatterMultiplier;
+float forwardScatter;
+float backwardScatter;
+float scatterMultiplier;
+float4 _LightColor0;
+
+// Transform
+float3 cloudSpeed;
+
+float3 _SmokeOrigin;
+float _Radius;
+float _DensityFalloff;
+
+StructuredBuffer<int> voxelGrid;
+
+float normalizedTime;
+float maxRadius;
+
+float stepSize;
+float lightStepSize;
+
+uint3 VoxelResolution;
+
+
+Texture2D<half> _DepthTex;
+SamplerState linear_clamp_sampler;
+
+float2 _BufferSize, _ScreenSize;
+
+#define MOD3 float3(.16532,.17369,.15787)
+#define MAX_DISTANCE 200
+
+// Used to scale the blue-noise to fit the view
+float2 scaleUV(float2 uv, float scale) {
+	float x = uv.x * _ScreenSize.x;
+	float y = uv.y * _ScreenSize.y;
+	return float2 (x,y)/scale;
+}
+
+float henyeyGreenstein(float g, float angle) {
+	return (1.0f - pow(g,2)) / (4.0f * 3.14159 * pow(1 + pow(g, 2) - 2.0f * g * angle, 1.5f));
+}
+
+float hgScatter(float angle) {
+	float scatterAverage = (henyeyGreenstein(forwardScatter, angle) + henyeyGreenstein(-backwardScatter, angle)) / 2.0f;
+	// Scale the brightness by sun position
+	float sunPosModifier = 1.0f;
+	if (_WorldSpaceLightDir.y < 0) {
+		sunPosModifier = pow(_WorldSpaceLightDir.y + 1,3);
+	}
+	return brightness * sunPosModifier + scatterAverage * scatterMultiplier;
+}
+
+float beer(float d) {
+	return exp(-d);
+}
+
+float Hash(float3 p)
+{
+	p = frac(p * MOD3);
+	p += dot(p.xyz, p.yzx + 19.19);
+	return frac(p.x * p.y * p.z);
+}
+
+float Noise(in float3 p)
+{
+	float3 i = floor(p);
+	float3 f = frac(p);
+	f *= f * (3.0 - 2.0*f);
+
+	return lerp(
+		lerp(lerp(Hash(i + float3(0., 0., 0.)), Hash(i + float3(1., 0., 0.)), f.x),
+			lerp(Hash(i + float3(0., 1., 0.)), Hash(i + float3(1., 1., 0.)), f.x),
+			f.y),
+		lerp(lerp(Hash(i + float3(0., 0., 1.)), Hash(i + float3(1., 0., 1.)), f.x),
+			lerp(Hash(i + float3(0., 1., 1.)), Hash(i + float3(1., 1., 1.)), f.x),
+			f.y),
+		f.z);
+}
+
+float FBM(float3 p, float freq = .25)
+{
+	p *= freq;
+	float f;
+
+	f = 0.5000		* Noise(p); p = p * 3.02;
+	f += 0.2500		* Noise(p); p = p * 3.03;
+	f += 0.1250		* Noise(p); p = p * 3.01;
+	f += 0.0625		* Noise(p); p = p * 3.03;
+	f += 0.03125	* Noise(p); p = p * 3.02;
+	f += 0.015625	* Noise(p);
+	return f;
+}
+
+uint to1D(uint3 pos) {
+	return pos.x + pos.y * VoxelResolution.x + pos.z * VoxelResolution.x * VoxelResolution.y;
+}
+
+float insideBox(float3 v, float3 bottomLeft, float3 topRight) {
+	float3 s = step(bottomLeft, v) - step(topRight, v);
+	return s.x * s.y * s.z;
+}
+
+uint getVoxel(float3 pos) {
+	if (insideBox(pos, boundsMin, boundsMax) == 0)
+		return 0;
+		
+	pos -= boundsMin;
+	
+	return to1D(pos);
+}
+
+bool isInsideVoxel(float3 pos) {
+	if (insideBox(pos, boundsMin, boundsMax) == 0)
+		return false;
+	
+	pos -= boundsMin;
+
+	return voxelGrid[to1D(pos)] > 0;
+}
+
+float densityAtPosition(float3 rayPos) {
+	float n = max(0, FBM(rayPos + cloudSpeed * _Time.x, scale) - densityOffset) * densityMultiplier;
+	
+	float r = length(rayPos - _SmokeOrigin);
+	
+	float falloff = 1 - saturate(n + r - (normalizedTime * (maxRadius / 4)));
+	
+	return n * falloff;
+}
+
+
+float lightmarch(float3 position) {
+	float density = 0;
+
+	for (int i = 0; i < lightmarchSteps; i++) {
+		position += _WorldSpaceLightDir * lightStepSize;
+		density += max(0, densityAtPosition(position) * lightStepSize);
+	}
+
+	float transmit = beer(density * (1 - outScatterMultiplier));
+	return lerp(transmit, 1, transmitThreshold);
+} 
+
+float4 raymarch(uint3 id, out float distanceTraveled) {	
+	float2 uv = (id.xy / _BufferSize);
+	
+	float3 rayOrigin = _WorldSpaceCameraPos;
+	float3 viewVector = mul(unity_CameraInvProjection, float4(uv * 2 - 1, 0, 1)).xyz;
+    float3 rayDir = mul(unity_CameraToWorld, float4(viewVector, 0)).xyz;
+	
+	float viewLength = length(rayDir);
+    rayDir /= viewLength;
+	
+	float3 samplePos = rayOrigin + rayDir;
+	bool inVoxel = isInsideVoxel(samplePos);
+	
+	float nonlin_depth = _DepthTex.SampleLevel(linear_clamp_sampler, uv, 0).r;
+	float sceneDepth = LinearEyeDepth(nonlin_depth) * viewLength;
+	
+	distanceTraveled = 0;
+	
+	while (!inVoxel && distanceTraveled < MAX_DISTANCE) {
+		distanceTraveled += 0.4;
+		
+		if (distanceTraveled >= sceneDepth)
+			return float4(0, 0, 0, 0);
+		
+		samplePos = rayOrigin + distanceTraveled * rayDir;
+		inVoxel = isInsideVoxel(samplePos);
+	}
+	
+	if (!inVoxel)
+		return float4(0, 0, 0, 0);	
+	
+	// Henyey-Greenstein scatter
+	float scatter = hgScatter(dot(rayDir, _WorldSpaceLightDir.xyz));
+
+	float rayDist = 0;
+	
+	float transmit = 1;
+	float3 I = 0; // Illumination
+	
+	for (int steps = 0; steps < marchSteps; steps++) {
+		rayDist += stepSize;
+		distanceTraveled += stepSize;
+		samplePos += rayDist * rayDir;
+		
+		float3 distanceVec = samplePos - rayOrigin;
+		if (dot(distanceVec, distanceVec) >= sceneDepth*sceneDepth)
+			break;
+		
+		float sampleDensity = densityAtPosition(samplePos);
+		
+		if (sampleDensity > 0.001) {
+			I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
+			transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
+		} 
+	}
+	
+	float3 color = I * _LightColor0 * scatterColor;
+	return float4(color, 1 - transmit);
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+	float distanceTraveled = 0;
+	float4 col = raymarch(id, distanceTraveled);
+	
+	SmokesArrayResult[uint3(id.xy, SmokeArrayIndex)] = col;	
+	SmokeDepthResult[uint3(id.xy, SmokeArrayIndex)] = distanceTraveled;
+}

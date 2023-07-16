@@ -1,10 +1,11 @@
 fileFormatVersion: 2
-guid: ad57ef557656fc34aab9a70da7de2c20
+guid: a0468d1f850060f4f8fca0ac906642ea
 ShaderImporter:
   externalObjects: {}
-  defaultTextures: []
+  defaultTextures:
+  - _MainTex: {instanceID: 0}
+  - _SmokeTexArray: {instanceID: 0}
   nonModifiableTextures: []
-  preprocessorOverride: 0
   userData: 
   assetBundleName: 
   assetBundleVariant: 

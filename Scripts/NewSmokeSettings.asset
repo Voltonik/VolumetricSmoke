@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eb627ae94fd9be4449f47cbe4b54a5ab, type: 3}
+  m_Name: NewSmokeSettings
+  m_EditorClassIdentifier: 
+  cloudScale: 0.46
+  densityMultiplier: 4.98
+  densityOffset: 0.28
+  densityFalloff: 1
+  marchSteps: 50
+  lightmarchSteps: 4
+  stepSize: 0.01
+  lightStepSize: 1
+  rayOffset: 0
+  blueNoise: {fileID: 2800000, guid: a17f2ff6468d16f479385ec70b60f2f1, type: 3}
+  scatterColor: {r: 0.8666667, g: 0.54901963, b: 0.3882353, a: 1}
+  brightness: 0.36
+  transmitThreshold: 0.08
+  inScatterMultiplier: 0.52
+  outScatterMultiplier: -0.22
+  forwardScattering: 0.33
+  backwardScattering: 0.57
+  scatterMultiplier: 0.34
+  cloudSpeed: {x: 0, y: 0, z: 0}

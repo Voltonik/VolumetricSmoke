@@ -39,7 +39,7 @@ public class RaymarcherEditor : Editor {
             return false;
     }
 
-    Vector3Int SeedPos(Vector3 pos, Vector3 boundsExtent, Vector3 boundsMin, ref Raymarcher.VoxelCell[] voxelGrid) {
+    Vector3Int SeedPos(Vector3 pos, Vector3 boundsExtent, Vector3 boundsMin, ref VoxelSphere.VoxelCell[] voxelGrid) {
         return (pos - boundsMin).ToVector3Int();
     }
 
