@@ -431,8 +431,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 135760616}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -20.24, y: 3.573, z: 8.4406}
-  m_LocalScale: {x: 0.83390564, y: 12.018252, z: 11.801927}
+  m_LocalPosition: {x: -20.24, y: 8.2011, z: 8.4406}
+  m_LocalScale: {x: 0.83390564, y: 21.27471, z: 11.801927}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -1259,6 +1259,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   DebugView: 0
   ResolutionDivider: 4
+  m_spheres: []
   smokesArray: {fileID: 599946256}
   depthArray: {fileID: 0}
 --- !u!1 &1004313492

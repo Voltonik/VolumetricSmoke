@@ -8,44 +8,30 @@ using UnityEngine;
 public class VoxelSphere : MonoBehaviour {
     public class Voxel {
         public Vector3 LocalPosition;
-        public int Order;
+        public float VoxelDistance;
 
-        public Voxel(Vector3 position, int order) {
+        public Voxel(Vector3 position, int voxelDistance) {
             LocalPosition = position;
-            Order = order;
+            VoxelDistance = voxelDistance;
         }
     }
 
     [Serializable]
     public struct DebugVoxel {
         public Vector3 LocalPosition;
-        public Vector3 Center;
-        public float FurthestVoxel;
-        public int SphereID;
         public Vector3 Color;
 
-        public DebugVoxel(Vector3 position, Vector3 center, float furthestVoxel, int sphereID, Color color = default(Color)) {
+        public DebugVoxel(Vector3 position, Color color = default(Color)) {
             LocalPosition = position;
-            SphereID = sphereID;
             Color = new Vector3(color.r, color.g, color.b);
-            Center = center;
-            FurthestVoxel = furthestVoxel;
         }
 
         public static int SIZE = System.Runtime.InteropServices.Marshal.SizeOf(typeof(DebugVoxel));
     }
 
-    [Serializable]
-    public struct VoxelCell {
-        public int Occupied;
-
-        public static int SIZE = System.Runtime.InteropServices.Marshal.SizeOf(typeof(VoxelCell));
-    }
-
-
     public SmokeSettings Settings;
 
-    public VoxelCell[] VoxelsGrid;
+    public float[] VoxelsGrid;
 
     public ComputeShader Material;
     public Bounds GlobalBounds;
@@ -57,6 +43,7 @@ public class VoxelSphere : MonoBehaviour {
 
 
     private Vector3 m_center;
+    private float m_startingRadius;
     private float m_maxRadius;
     private float m_voxelScale;
     private Mesh m_voxelMesh;
@@ -70,13 +57,14 @@ public class VoxelSphere : MonoBehaviour {
 
     private List<DebugVoxel> m_debugVoxels = new List<DebugVoxel>();
     private List<Voxel> m_voxelsToTransition = new List<Voxel>();
-    private Dictionary<Vector3, Voxel> m_voxelsCache = new Dictionary<Vector3, Voxel>();
+    public Dictionary<Vector3, Voxel> m_voxelsCache = new Dictionary<Vector3, Voxel>();
 
     private bool m_running;
 
     public void Initalize(SmokeSettings settings, Vector3 center, float radius, Mesh voxelMesh, float voxelScale = 1, float growthSpeed = 0.9f, AnimationCurve growthCurve = null) {
         Settings = settings;
         m_center = center + new Vector3(0, voxelScale / 2, 0);
+        m_startingRadius = radius;
         m_maxRadius = radius;
         m_voxelMesh = voxelMesh;
         m_voxelScale = voxelScale;
@@ -109,10 +97,10 @@ public class VoxelSphere : MonoBehaviour {
         VoxelResolution.y = Mathf.CeilToInt(GlobalBounds.size.y);
         VoxelResolution.z = Mathf.CeilToInt(GlobalBounds.size.z);
 
-        VoxelsGrid = new VoxelCell[VoxelResolution.x * VoxelResolution.y * VoxelResolution.z];
+        VoxelsGrid = new float[VoxelResolution.x * VoxelResolution.y * VoxelResolution.z];
 
         m_voxelsGridBuffer?.Release();
-        m_voxelsGridBuffer = new ComputeBuffer(VoxelsGrid.Length, VoxelCell.SIZE);
+        m_voxelsGridBuffer = new ComputeBuffer(VoxelsGrid.Length, sizeof(float));
 
         m_voxelsGridBuffer.SetData(VoxelsGrid);
 
@@ -124,25 +112,23 @@ public class VoxelSphere : MonoBehaviour {
         Material.SetVector("boundsSize", GlobalBounds.size);
     }
 
-    private void UpdateVoxelGrid(DebugVoxel voxel, float furthestVoxel, float normalizedTime, bool apply = true) {
+    private void UpdateVoxelCell(Voxel voxel) {
         // TODO: improve
-        Vector3 voxelPos = (voxel.Center + voxel.LocalPosition) - GlobalBounds.min;
+        Vector3 voxelPos = (m_center + voxel.LocalPosition) - GlobalBounds.min;
 
         Vector3Int boxPos = new Vector3Int((int)voxelPos.x, (int)voxelPos.y, (int)voxelPos.z);
 
         int yOffset = boxPos.y * VoxelResolution.x;
         int zOffset = boxPos.z * VoxelResolution.x * VoxelResolution.y;
 
-        VoxelsGrid[boxPos.x + yOffset + zOffset].Occupied = 1;
+        VoxelsGrid[boxPos.x + yOffset + zOffset] = voxel.VoxelDistance;
 
-        if (apply) {
-            m_voxelsGridBuffer.SetData(VoxelsGrid);
+        m_voxelsGridBuffer.SetData(VoxelsGrid);
 
-            Material.SetBuffer(0, "voxelGrid", m_voxelsGridBuffer);
-            Material.SetVector("_SmokeOrigin", voxel.Center);
-            Material.SetFloat("maxRadius", Mathf.Sqrt(furthestVoxel));
-            Material.SetFloat("normalizedTime", normalizedTime);
-        }
+        Material.SetBuffer(0, "voxelGrid", m_voxelsGridBuffer);
+        Material.SetVector("_SmokeOrigin", m_center);
+        // Material.SetFloat("maxRadius", Mathf.Sqrt(furthestVoxel));
+        Material.SetFloat("normalizedTime", normalizedTime);
     }
 
     private void AddVoxel(Voxel v) {
@@ -154,7 +140,7 @@ public class VoxelSphere : MonoBehaviour {
             GlobalBounds.Encapsulate(new Bounds(v.LocalPosition + m_center, Vector3.one * m_voxelScale));
     }
 
-    int maxRadius = 0;
+    public float maxRadius = 0;
 
     private void CalculateSphere() {
         int r = Mathf.RoundToInt(m_maxRadius / m_voxelScale);
@@ -166,8 +152,8 @@ public class VoxelSphere : MonoBehaviour {
             if (!Physics.Raycast(m_center + Vector3.up * 0.1f, v.LocalPosition, m_maxRadius)) {
                 AddVoxel(v);
 
-                if (v.Order > maxRadius) {
-                    maxRadius = v.Order;
+                if (v.VoxelDistance > maxRadius) {
+                    maxRadius = v.VoxelDistance;
                     outLayerVoxels.Clear();
                     outLayerVoxels.Add(v);
                 } else {
@@ -180,7 +166,7 @@ public class VoxelSphere : MonoBehaviour {
 
         outLayerVoxels.Shuffle();
 
-        int nextIndex = maxRadius + 1;
+        float voxelDistance = maxRadius + 1;
 
         while (deleted > 0) {
             var newLayerVoxels = new List<Voxel>();
@@ -193,14 +179,14 @@ public class VoxelSphere : MonoBehaviour {
                 for (int j = 0; j < 6; j++) {
                     if (!m_voxelsCache.ContainsKey(connectedVoxels[j].LocalPosition)
                     && !Physics.CheckBox(m_center + connectedVoxels[j].LocalPosition + Vector3.up * 0.1f, Vector3.one * (m_voxelScale * 0.5f))) {
-                        connectedVoxels[j].Order = nextIndex;
+                        connectedVoxels[j].VoxelDistance = voxelDistance;
                         AddVoxel(connectedVoxels[j]);
                         newLayerVoxels.Add(connectedVoxels[j]);
                         deleted--;
-                        nextIndex++;
+                        voxelDistance++;
 
-                        if (connectedVoxels[j].Order > maxRadius)
-                            maxRadius = connectedVoxels[j].Order;
+                        if (connectedVoxels[j].VoxelDistance > maxRadius)
+                            maxRadius = connectedVoxels[j].VoxelDistance;
 
                         foundConnected = true;
 
@@ -228,15 +214,6 @@ public class VoxelSphere : MonoBehaviour {
                 new Voxel(v.LocalPosition + Vector3.forward, (int)((v.LocalPosition + Vector3.forward).sqrMagnitude)),
                 new Voxel(v.LocalPosition + Vector3.back, (int)((v.LocalPosition + Vector3.back).sqrMagnitude)),
             };
-    }
-
-    public static bool IsVoxelConnected(Dictionary<Vector3, Voxel> voxels, Voxel voxel) {
-        return voxels.ContainsKey(voxel.LocalPosition + Vector3.up)
-                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.down)
-                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.right)
-                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.left)
-                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.forward)
-                    || voxels.ContainsKey(voxel.LocalPosition + Vector3.back);
     }
 
     private static void GenerateSphere(int r, Action<Voxel> sphereVoxel) {
@@ -286,10 +263,12 @@ public class VoxelSphere : MonoBehaviour {
         m_argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
 
 
-        m_voxelsToTransition = m_voxelsCache.Values.OrderBy(v => v.Order).ToList();
+        m_voxelsToTransition = m_voxelsCache.Values.OrderBy(v => v.VoxelDistance).ToList();
 
         m_running = true;
     }
+
+    float normalizedTime;
 
     public async void Explode() {
         Reset();
@@ -301,27 +280,26 @@ public class VoxelSphere : MonoBehaviour {
         Bounds renderBounds = new Bounds(m_center, new Vector3(m_maxRadius, m_maxRadius, m_maxRadius));
         Bounds bounds = new Bounds(m_center, Vector3.zero);
 
-        var centerVoxel = new DebugVoxel(Vector3.zero, m_center, maxRadius, 0, UnityEngine.Random.ColorHSV());
-
-        UpdateVoxelGrid(centerVoxel, maxRadius, 0);
+        UpdateVoxelCell(new Voxel(Vector3.zero, 0));
 
         while (Application.isPlaying && m_running) {
             if (animating && t <= m_growthTime) {
-                float normalizedTime = t / m_growthTime;
+                normalizedTime = t / m_growthTime;
 
                 int starting_i = prev_i + 1;
                 int end_i = Mathf.RoundToInt(m_voxelsToTransition.Count * normalizedTime);
 
                 for (int i = starting_i; i < end_i; i++) {
                     prev_i = i;
+                    currentOrder = m_voxelsToTransition[i].VoxelDistance;
 
-                    var voxelData = new DebugVoxel(m_voxelsToTransition[i].LocalPosition, m_center, maxRadius, 0, UnityEngine.Random.ColorHSV());
+                    var voxelData = new DebugVoxel(m_voxelsToTransition[i].LocalPosition, UnityEngine.Random.ColorHSV());
 
                     m_debugVoxels.Add(voxelData);
 
                     bounds.Encapsulate(new Bounds(voxelData.LocalPosition + m_center, Vector3.one * m_voxelScale));
 
-                    UpdateVoxelGrid(voxelData, maxRadius, normalizedTime);
+                    UpdateVoxelCell(m_voxelsToTransition[i]);
 
                     if (Raymarcher.Instance.DebugView) {
                         m_voxelBuffer?.Release();
@@ -358,6 +336,8 @@ public class VoxelSphere : MonoBehaviour {
         }
     }
 
+    float currentOrder;
+
     public void Render(RenderTexture rt, RenderTexture depth, RenderTexture mainTex, int ind) {
         Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(Camera.main.projectionMatrix, false);
         Matrix4x4 viewProjMatrix = projMatrix * Camera.main.worldToCameraMatrix;
@@ -373,6 +353,10 @@ public class VoxelSphere : MonoBehaviour {
         Material.SetVector("_WorldSpaceLightDir", -FindObjectOfType<Light>().transform.forward);
         Material.SetVector("_LightColor0", FindObjectOfType<Light>().color);
 
+        Material.SetInt("trilinear", Settings.trilinear ? 1 : 0);
+        Material.SetFloat("maxRadius", (float)maxRadius);
+        Material.SetFloat("radius", (float)m_startingRadius - 0.1f);
+        Material.SetFloat("currentOrder", (float)currentOrder);
 
         Material.SetTexture(0, "SmokesArrayResult", rt);
         Material.SetInt("SmokeArrayIndex", ind);

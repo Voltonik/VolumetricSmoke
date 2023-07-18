@@ -2,6 +2,7 @@ using UnityEngine;
 
 [CreateAssetMenu(menuName = "Voxel/Smoke Settings", fileName = "NewSmokeSettings")]
 public class SmokeSettings : ScriptableObject {
+    public bool trilinear;
     public float cloudScale = 1;
     public float densityMultiplier = 2.8f;
     public float densityOffset = 13.23f;

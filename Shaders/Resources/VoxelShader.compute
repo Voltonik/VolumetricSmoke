@@ -5,9 +5,7 @@ RWTexture2DArray<float4> SmokesArrayResult;
 RWTexture2DArray<float> SmokeDepthResult;
 int SmokeArrayIndex;
 
-float3 _VoxelResolution;
-int voxelsCount;
-float3 boundsMin, boundsMax, boundsSize;
+float3 boundsMin, boundsMax;
 
 Texture2D<float4> _MainTex;
 SamplerState sampler_MainTex;
@@ -43,7 +41,7 @@ float3 _SmokeOrigin;
 float _Radius;
 float _DensityFalloff;
 
-StructuredBuffer<int> voxelGrid;
+StructuredBuffer<float> voxelGrid;
 
 float normalizedTime;
 float maxRadius;
@@ -124,7 +122,7 @@ float FBM(float3 p, float freq = .25)
 	return f;
 }
 
-uint to1D(uint3 pos) {
+uint flatten(uint3 pos) {
 	return pos.x + pos.y * VoxelResolution.x + pos.z * VoxelResolution.x * VoxelResolution.y;
 }
 
@@ -133,34 +131,79 @@ float insideBox(float3 v, float3 bottomLeft, float3 topRight) {
 	return s.x * s.y * s.z;
 }
 
-uint getVoxel(float3 pos) {
-	if (insideBox(pos, boundsMin, boundsMax) == 0)
-		return 0;
-		
-	pos -= boundsMin;
-	
-	return to1D(pos);
-}
-
 bool isInsideVoxel(float3 pos) {
 	if (insideBox(pos, boundsMin, boundsMax) == 0)
 		return false;
 	
 	pos -= boundsMin;
 
-	return voxelGrid[to1D(pos)] > 0;
+	return voxelGrid[flatten(pos)] > 0;
+}
+
+float radius;
+float currentOrder;
+
+float getVoxel(float3 pos) {
+	if (insideBox(pos, boundsMin, boundsMax) == 0)
+		return 0;
+		
+	pos -= boundsMin;
+	
+	return (float)voxelGrid[flatten(pos)];
+}
+
+float4 getTrilinearVoxel(float3 pos) {
+	if (insideBox(pos, boundsMin, boundsMax) == 0)
+		return 0;
+		
+	float3 seedPos = pos - boundsMin;
+	
+	seedPos -= 0.5f;
+
+	uint3 vi = floor(seedPos);
+
+	float weight1 = 0.0f;
+	float weight2 = 0.0f;
+	float weight3 = 0.0f;
+	float value = 0.0f;
+
+	for (int i = 0; i < 2; i++) {
+		weight1 = 1 - min(abs(seedPos.x - (vi.x + i)), VoxelResolution.x);
+		for (int j = 0; j < 2; j++) {
+			weight2 = 1 - min(abs(seedPos.y - (vi.y + j)), VoxelResolution.y);
+			for (int k = 0; k < 2; k++) {
+				weight3 = 1 - min(abs(seedPos.z - (vi.z + k)), VoxelResolution.z);
+				value += weight1 * weight2 * weight3 * (float)voxelGrid[flatten(vi + uint3(i, j, k))];
+			}
+		}
+	}
+
+    return value;
+}
+
+int trilinear = 0;
+
+float SDFSphere(float3 pos, float3 center, float radius) {
+    return length(pos - center) - radius;
 }
 
 float densityAtPosition(float3 rayPos) {
-	float n = max(0, FBM(rayPos + cloudSpeed * _Time.x, scale) - densityOffset) * densityMultiplier;
-	
-	float r = length(rayPos - _SmokeOrigin);
-	
-	float falloff = 1 - saturate(n + r - (normalizedTime * (maxRadius / 4)));
-	
-	return n * falloff;
-}
+    float3 vp = rayPos - _SmokeOrigin;
 
+	float v = trilinear == 0 ? getVoxel(rayPos) : getTrilinearVoxel(rayPos);
+
+	float n = max(0, FBM(rayPos + cloudSpeed * _Time.x, scale) - densityOffset) * densityMultiplier;
+
+	float dist = min(1.0f, length(vp / radius));
+    float voxelDist = min(1.0f, 1 - (v / maxRadius));
+    dist = max(dist, voxelDist);
+
+    dist = smoothstep(_DensityFalloff, 1.0f, dist);
+
+    float falloff = min(1.0f, dist + n);
+
+    return saturate(saturate(v) * (1 - falloff));
+}
 
 float lightmarch(float3 position) {
 	float density = 0;
@@ -185,7 +228,7 @@ float4 raymarch(uint3 id, out float distanceTraveled) {
     rayDir /= viewLength;
 	
 	float3 samplePos = rayOrigin + rayDir;
-	bool inVoxel = isInsideVoxel(samplePos);
+	bool inVoxel = insideBox(samplePos, boundsMin, boundsMax) != 0;
 	
 	float nonlin_depth = _DepthTex.SampleLevel(linear_clamp_sampler, uv, 0).r;
 	float sceneDepth = LinearEyeDepth(nonlin_depth) * viewLength;
@@ -199,7 +242,7 @@ float4 raymarch(uint3 id, out float distanceTraveled) {
 			return float4(0, 0, 0, 0);
 		
 		samplePos = rayOrigin + distanceTraveled * rayDir;
-		inVoxel = isInsideVoxel(samplePos);
+		inVoxel = insideBox(samplePos, boundsMin, boundsMax) != 0;
 	}
 	
 	if (!inVoxel)

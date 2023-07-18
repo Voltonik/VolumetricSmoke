@@ -9,7 +9,7 @@ public class Raymarcher : MonoBehaviour {
     [Min(1)] public float ResolutionDivider = 4;
 
     private Dictionary<VoxelSphere, RenderTexture> m_smokeInstances = new Dictionary<VoxelSphere, RenderTexture>();
-    private List<VoxelSphere> m_spheres = new List<VoxelSphere>();
+    public List<VoxelSphere> m_spheres = new List<VoxelSphere>();
 
     public RenderTexture smokesArray;
     public RenderTexture depthArray;
