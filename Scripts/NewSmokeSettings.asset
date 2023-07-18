@@ -15,12 +15,12 @@ MonoBehaviour:
   trilinear: 1
   cloudScale: 0.55
   densityMultiplier: 3.89
-  densityOffset: 0.19
-  densityFalloff: 5.95
+  densityOffset: 0.29
+  densityFalloff: 0.96
   marchSteps: 51
   lightmarchSteps: 20
-  stepSize: 0.1
-  lightStepSize: 0.208
+  stepSize: 0.01
+  lightStepSize: 0.122
   rayOffset: 0
   blueNoise: {fileID: 2800000, guid: a17f2ff6468d16f479385ec70b60f2f1, type: 3}
   scatterColor: {r: 0.8666667, g: 0.54901963, b: 0.3882353, a: 1}

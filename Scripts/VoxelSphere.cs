@@ -353,8 +353,11 @@ public class VoxelSphere : MonoBehaviour {
         Material.SetVector("_WorldSpaceLightDir", -FindObjectOfType<Light>().transform.forward);
         Material.SetVector("_LightColor0", FindObjectOfType<Light>().color);
 
-        Material.SetInt("trilinear", Settings.trilinear ? 1 : 0);
-        Material.SetFloat("maxRadius", (float)maxRadius);
+        Material.SetInt("trilinear", (int)Settings.voxelFilteringMethod);
+        Material.SetFloat("voxelSmoothFactor1", Settings.voxelSmoothFactor1);
+        Material.SetFloat("voxelSmoothFactor2", Settings.voxelSmoothFactor2);
+
+        Material.SetFloat("maxRadius", Mathf.Sqrt(maxRadius));
         Material.SetFloat("radius", (float)m_startingRadius - 0.1f);
         Material.SetFloat("currentOrder", (float)currentOrder);
 
@@ -372,8 +375,6 @@ public class VoxelSphere : MonoBehaviour {
         Material.SetInt("lightmarchSteps", Settings.lightmarchSteps);
         Material.SetFloat("stepSize", Settings.stepSize);
         Material.SetFloat("lightStepSize", Settings.lightStepSize);
-        Material.SetFloat("rayOffset", Settings.rayOffset);
-        Material.SetTexture(0, "BlueNoise", Settings.blueNoise);
 
         Material.SetVector("scatterColor", Settings.scatterColor);
         Material.SetFloat("brightness", Settings.brightness);
