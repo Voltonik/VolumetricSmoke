@@ -12,17 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eb627ae94fd9be4449f47cbe4b54a5ab, type: 3}
   m_Name: NewSmokeSettings
   m_EditorClassIdentifier: 
-  trilinear: 1
-  cloudScale: 0.55
-  densityMultiplier: 3.89
-  densityOffset: 0.29
-  densityFalloff: 0.96
-  marchSteps: 51
-  lightmarchSteps: 20
+  cloudScale: 0.45
+  densityMultiplier: 1
+  noiseAmplitude: 6
+  densityOffset: 0
+  densityFalloff: 6.83
+  marchSteps: 100
+  lightmarchSteps: 10
+  voxelFilteringMethod: 1
+  voxelSmoothFactor1: 0.5
   stepSize: 0.01
-  lightStepSize: 0.122
-  rayOffset: 0
-  blueNoise: {fileID: 2800000, guid: a17f2ff6468d16f479385ec70b60f2f1, type: 3}
+  lightStepSize: 0.963
   scatterColor: {r: 0.8666667, g: 0.54901963, b: 0.3882353, a: 1}
   brightness: 0.36
   transmitThreshold: 0.08
@@ -31,4 +31,4 @@ MonoBehaviour:
   forwardScattering: 0.33
   backwardScattering: 0.57
   scatterMultiplier: 0.34
-  cloudSpeed: {x: 0, y: -20, z: -10}
+  cloudSpeed: {x: 5, y: -20, z: -5}

@@ -7,23 +7,17 @@ int SmokeArrayIndex;
 
 float3 boundsMin, boundsMax;
 
-Texture2D<float4> _MainTex;
-SamplerState sampler_MainTex;
-
 // Noise
 float scale;
+float noiseAmplitude;
 float densityMultiplier;
 float densityOffset;
 
 // Ray-March
 int marchSteps;
 int lightmarchSteps;
-float rayOffset;
-Texture2D<float4> BlueNoise;
-SamplerState samplerBlueNoise;
 
 // Lighting 
-float3 _WorldSpaceLightDir;
 float4 scatterColor;
 float brightness;
 float transmitThreshold;
@@ -38,7 +32,6 @@ float4 _LightColor0;
 float3 cloudSpeed;
 
 float3 _SmokeOrigin;
-float _Radius;
 float _DensityFalloff;
 
 StructuredBuffer<float> voxelGrid;
@@ -49,23 +42,16 @@ float maxRadius;
 float stepSize;
 float lightStepSize;
 
-uint3 VoxelResolution;
+float3 VoxelResolution;
 
 
 Texture2D<half> _DepthTex;
 SamplerState linear_clamp_sampler;
 
-float2 _BufferSize, _ScreenSize;
+float2 _BufferSize;
 
 #define MOD3 float3(.16532,.17369,.15787)
 #define MAX_DISTANCE 200
-
-// Used to scale the blue-noise to fit the view
-float2 scaleUV(float2 uv, float scale) {
-	float x = uv.x * _ScreenSize.x;
-	float y = uv.y * _ScreenSize.y;
-	return float2 (x,y)/scale;
-}
 
 float henyeyGreenstein(float g, float angle) {
 	return (1.0f - pow(g,2)) / (4.0f * 3.14159 * pow(1 + pow(g, 2) - 2.0f * g * angle, 1.5f));
@@ -75,8 +61,8 @@ float hgScatter(float angle) {
 	float scatterAverage = (henyeyGreenstein(forwardScatter, angle) + henyeyGreenstein(-backwardScatter, angle)) / 2.0f;
 	// Scale the brightness by sun position
 	float sunPosModifier = 1.0f;
-	if (_WorldSpaceLightDir.y < 0) {
-		sunPosModifier = pow(_WorldSpaceLightDir.y + 1,3);
+	if (_WorldSpaceLightPos0.y < 0) {
+		sunPosModifier = pow(_WorldSpaceLightPos0.y + 1,3);
 	}
 	return brightness * sunPosModifier + scatterAverage * scatterMultiplier;
 }
@@ -122,7 +108,7 @@ float FBM(float3 p, float freq = .25)
 	return f;
 }
 
-uint flatten(uint3 pos) {
+uint flatten(int3 pos) {
 	return pos.x + pos.y * VoxelResolution.x + pos.z * VoxelResolution.x * VoxelResolution.y;
 }
 
@@ -131,17 +117,14 @@ float insideBox(float3 v, float3 bottomLeft, float3 topRight) {
 	return s.x * s.y * s.z;
 }
 
-bool isInsideVoxel(float3 pos) {
+float getVoxel(float3 pos) {
 	if (insideBox(pos, boundsMin, boundsMax) == 0)
-		return false;
+		return 0;
 	
 	pos -= boundsMin;
 
-	return voxelGrid[flatten(pos)] > 0;
+	return (float)voxelGrid[flatten(pos)];
 }
-
-float radius;
-float currentOrder;
 
 float Df(float3 pos) {
 	if (insideBox(pos, boundsMin, boundsMax) == 0)
@@ -149,76 +132,7 @@ float Df(float3 pos) {
 		
 	pos -= boundsMin;
 	
-	return saturate((float)voxelGrid[flatten(pos)]);
-}
-
-float voxelSmoothFactor1;
-float voxelSmoothFactor2;
-
-float3 i0(float3 p) {
-    p = floor(p / voxelSmoothFactor1 + 0.5) * voxelSmoothFactor1;
-    return Df(p);
-}
-
-float mix(float x, float y, float a) {
-	a = saturate(a);
-	return x * (1 - a) + y * a;
-}
-
-float3 fract(float3 x) {
-	return x - floor(x);
-}
-
-float i1(float3 p) {
-	float3 d = fract(p / voxelSmoothFactor1 + 0.5);
-	
-    float f00 = mix(i0(p),                   i0(p + float3(voxelSmoothFactor1, 0, 0)), d.x);
-    float f01 = mix(i0(p + float3(0, 0, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1, 0, voxelSmoothFactor1)), d.x);
-    
-	float f10 = mix(i0(p + float3(0, voxelSmoothFactor1, 0)), i0(p + float3(voxelSmoothFactor1, voxelSmoothFactor1, 0)), d.x);
-    float f11 = mix(i0(p + float3(0, voxelSmoothFactor1, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1, voxelSmoothFactor1, voxelSmoothFactor1)), d.x);
-    
-	float f0 = mix(f00, f10, d.y);
-    float f1 = mix(f01, f11, d.y);
-	
-    return mix(f0, f1, d.z);
-}
-
-float CR(float f0, float f1, float f2, float f3, float x) {
-    float c2 = -.5*f0 + 0.5*f2;
-	float c3 = f0 - 2.5*f1 + 2.0*f2 - .5*f3;
-	float c4 = -.5 * f0	+ 1.5*f1 - 1.5*f2 + 0.5*f3;
-	return ((c4 * x + c3) * x + c2) * x + f1;
-}
-
-float i2(float3 p) {
-    float3 d = fract(p / voxelSmoothFactor1 + .5);
-    float f00 = CR(i0(p + float3(-voxelSmoothFactor1,-voxelSmoothFactor1,-voxelSmoothFactor1)), i0(p + float3(0,-voxelSmoothFactor1,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1,-voxelSmoothFactor1,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2,-voxelSmoothFactor1,-voxelSmoothFactor1)), d.x);    
-    float f01 = CR(i0(p + float3(-voxelSmoothFactor1,-voxelSmoothFactor1, 0)), i0(p + float3(0,-voxelSmoothFactor1, 0)), i0(p + float3(voxelSmoothFactor1,-voxelSmoothFactor1, 0)), i0(p + float3(voxelSmoothFactor2,-voxelSmoothFactor1, 0)), d.x);
-    float f02 = CR(i0(p + float3(-voxelSmoothFactor1,-voxelSmoothFactor1, voxelSmoothFactor1)), i0(p + float3(0,-voxelSmoothFactor1, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1,-voxelSmoothFactor1, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2,-voxelSmoothFactor1, voxelSmoothFactor1)), d.x);
-    float f03 = CR(i0(p + float3(-voxelSmoothFactor1,-voxelSmoothFactor1,voxelSmoothFactor2)), i0(p + float3(0,-voxelSmoothFactor1,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor1,-voxelSmoothFactor1,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor2,-voxelSmoothFactor1,voxelSmoothFactor2)), d.x);
-    
-    float f10 = CR(i0(p + float3(-voxelSmoothFactor1, 0,-voxelSmoothFactor1)), i0(p + float3(0, 0,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1, 0,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2, 0,-voxelSmoothFactor1)), d.x);    
-    float f11 = CR(i0(p + float3(-voxelSmoothFactor1, 0, 0)), i0(p                ), i0(p + float3(voxelSmoothFactor1, 0, 0)), i0(p + float3(voxelSmoothFactor2, 0, 0)), d.x);
-    float f12 = CR(i0(p + float3(-voxelSmoothFactor1, 0, voxelSmoothFactor1)), i0(p + float3(0, 0, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1, 0, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2, 0, voxelSmoothFactor1)), d.x);
-    float f13 = CR(i0(p + float3(-voxelSmoothFactor1, 0,voxelSmoothFactor2)), i0(p + float3(0, 0,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor1, 0,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor2, 0,voxelSmoothFactor2)), d.x);
-    
-    float f20 = CR(i0(p + float3(-voxelSmoothFactor1, voxelSmoothFactor1,-voxelSmoothFactor1)), i0(p + float3(0, voxelSmoothFactor1,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1, voxelSmoothFactor1,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2, voxelSmoothFactor1,-voxelSmoothFactor1)), d.x);
-    float f21 = CR(i0(p + float3(-voxelSmoothFactor1, voxelSmoothFactor1, 0)), i0(p + float3(0, voxelSmoothFactor1, 0)), i0(p + float3(voxelSmoothFactor1, voxelSmoothFactor1, 0)), i0(p + float3(voxelSmoothFactor2, voxelSmoothFactor1, 0)), d.x);
-    float f22 = CR(i0(p + float3(-voxelSmoothFactor1, voxelSmoothFactor1, voxelSmoothFactor1)), i0(p + float3(0, voxelSmoothFactor1, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1, voxelSmoothFactor1, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2, voxelSmoothFactor1, voxelSmoothFactor1)), d.x);
-    float f23 = CR(i0(p + float3(-voxelSmoothFactor1, voxelSmoothFactor1,voxelSmoothFactor2)), i0(p + float3(0, voxelSmoothFactor1,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor1, voxelSmoothFactor1,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor2, voxelSmoothFactor1,voxelSmoothFactor2)), d.x);
-    
-    float f30 = CR(i0(p + float3(-voxelSmoothFactor1,voxelSmoothFactor2,-voxelSmoothFactor1)), i0(p + float3(0,voxelSmoothFactor2,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1,voxelSmoothFactor2,-voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2,voxelSmoothFactor2,-voxelSmoothFactor1)), d.x);
-    float f31 = CR(i0(p + float3(-voxelSmoothFactor1,voxelSmoothFactor2, 0)), i0(p + float3(0,voxelSmoothFactor2, 0)), i0(p + float3(voxelSmoothFactor1,voxelSmoothFactor2, 0)), i0(p + float3(voxelSmoothFactor2,voxelSmoothFactor2, 0)), d.x);
-    float f32 = CR(i0(p + float3(-voxelSmoothFactor1,voxelSmoothFactor2, voxelSmoothFactor1)), i0(p + float3(0,voxelSmoothFactor2, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor1,voxelSmoothFactor2, voxelSmoothFactor1)), i0(p + float3(voxelSmoothFactor2,voxelSmoothFactor2, voxelSmoothFactor1)), d.x);
-    float f33 = CR(i0(p + float3(-voxelSmoothFactor1,voxelSmoothFactor2,voxelSmoothFactor2)), i0(p + float3(0,voxelSmoothFactor2,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor1,voxelSmoothFactor2,voxelSmoothFactor2)), i0(p + float3(voxelSmoothFactor2,voxelSmoothFactor2,voxelSmoothFactor2)), d.x);
-    
-    float f0 = CR(f00, f01, f02, f03, d.z);
-    float f1 = CR(f10, f11, f12, f13, d.z);
-    float f2 = CR(f20, f21, f22, f23, d.z);
-    float f3 = CR(f30, f31, f32, f33, d.z);
-    
-    return CR(f0, f1, f2, f3, d.y);
+	return ((float)voxelGrid[flatten(pos)]);
 }
 
 float getTrilinearVoxel(float3 pos) {
@@ -227,9 +141,9 @@ float getTrilinearVoxel(float3 pos) {
 		
 	float3 seedPos = pos - boundsMin;
 	
-	seedPos -= 0.5f;
+	seedPos -= 0.5;
 
-	uint3 vi = floor(seedPos);
+	int3 vi = floor(seedPos);
 
 	float weight1 = 0.0f;
 	float weight2 = 0.0f;
@@ -242,7 +156,7 @@ float getTrilinearVoxel(float3 pos) {
 			weight2 = 1 - min(abs(seedPos.y - (vi.y + j)), VoxelResolution.y);
 			for (int k = 0; k < 2; k++) {
 				weight3 = 1 - min(abs(seedPos.z - (vi.z + k)), VoxelResolution.z);
-				value += weight1 * weight2 * weight3 * saturate((float)voxelGrid[flatten(vi + uint3(i, j, k))]);
+				value += weight1 * weight2 * weight3 * voxelGrid[flatten(vi + int3(i, j, k))];
 			}
 		}
 	}
@@ -250,56 +164,34 @@ float getTrilinearVoxel(float3 pos) {
     return value;
 }
 
-float lin2(float4 d,float2 l){return mix(mix(d.x,d.y,l.x),mix(d.z,d.w,l.x),l.y);}
-float lin3(float4 d,float4 e,float3 l){return mix(lin2(d,l.xz),lin2(e,l.xz),l.y);}
-
-float Dfm(float3 p){
-    float3 c=floor(p);
-    float3x3 a=float3x3(1,0,0,0,1,0,0,0,1);
-    float4 d=float4(Df(c     ),Df(c   +a[0]),Df(c   +a[2]),Df(c+1.-a[1]));
-    float4 e=float4(Df(c+a[1]),Df(c+1.-a[2]),Df(c+1.-a[0]),Df(c+1.     ));
-    
-	return lin3(d,e,fract(p));
-}
-
-int trilinear = 0;
-
-float SDFSphere(float3 pos, float3 center, float radius) {
-    return length(pos - center) - radius;
+float SDFSphere(float dist, float radius) {
+    return dist - radius;
 }
 
 float densityAtPosition(float3 rayPos) {
-	float v = 0;
-	
-	if (trilinear == 0)
-		v = Df(rayPos);
-	else if (trilinear == 1)
-		v = getTrilinearVoxel(rayPos);
-	else if (trilinear == 2)
-		v = i1(rayPos);
-	else if (trilinear == 3)
-		v = i2(rayPos);
-	else if (trilinear == 4)
-		v = Dfm(rayPos);
+	float n = max(0, FBM(rayPos + cloudSpeed * _Time.x, scale) - densityOffset) * noiseAmplitude;
 		
-
-	float n = max(0, FBM(rayPos + cloudSpeed * _Time.x, scale) - densityOffset) * densityMultiplier;
-
-	float r = normalizedTime * (maxRadius / 4);
+	float v = getTrilinearVoxel(rayPos);
+ 
+	float radius = normalizedTime * maxRadius;
 	
-	float sphere = SDFSphere(rayPos, _SmokeOrigin, r);
+	float dist = length(rayPos - _SmokeOrigin);
 	
-	float falloff = saturate(n + sphere);
+	dist = max(dist, radius - v);
+		
+	float sphere = SDFSphere(dist, radius);
+	
+	float falloff = saturate(sphere + n);
 
-	return v * n * (1 - falloff);
+	return saturate(v) * (1 - falloff);
 }
 
 float lightmarch(float3 position) {
 	float density = 0;
 
 	for (int i = 0; i < lightmarchSteps; i++) {
-		position += _WorldSpaceLightDir * lightStepSize;
-		density += max(0, densityAtPosition(position) * lightStepSize);
+		position += _WorldSpaceLightPos0 * lightStepSize;
+		density += max(0, densityAtPosition(position) * lightStepSize) * densityMultiplier;
 	}
 
 	float transmit = beer(density * (1 - outScatterMultiplier));
@@ -338,7 +230,7 @@ float4 raymarch(uint3 id, out float distanceTraveled) {
 		return float4(0, 0, 0, 0);	
 	
 	// Henyey-Greenstein scatter
-	float scatter = hgScatter(dot(rayDir, _WorldSpaceLightDir.xyz));
+	float scatter = hgScatter(dot(rayDir, _WorldSpaceLightPos0.xyz));
 
 	float rayDist = 0;
 	
@@ -354,12 +246,10 @@ float4 raymarch(uint3 id, out float distanceTraveled) {
 		if (dot(distanceVec, distanceVec) >= sceneDepth*sceneDepth)
 			break;
 		
-		float sampleDensity = densityAtPosition(samplePos);
+		float sampleDensity = densityAtPosition(samplePos) * densityMultiplier;
 		
-		if (sampleDensity > 0.001) {
-			I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
-			transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
-		} 
+		I += sampleDensity * transmit * lightmarch(samplePos) * scatter;
+		transmit *= beer(sampleDensity  * (1 - inScatterMultiplier));
 	}
 	
 	float3 color = I * _LightColor0 * scatterColor;

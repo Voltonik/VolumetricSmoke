@@ -19,7 +19,7 @@ public class VoxeletricSpace : MonoBehaviour {
         if (Input.GetMouseButtonDown(1) && Physics.Raycast(ray, out hit, Mathf.Infinity)) {
             var sphere = new GameObject("Smoke Grenade", typeof(VoxelSphere)).GetComponent<VoxelSphere>();
 
-            sphere.Initalize(settings, hit.point, MaxRadius, VoxelMesh, VoxelScale, GrowthTime, GrowthCurve);
+            sphere.Initialize(settings, hit.point, MaxRadius, VoxelMesh, VoxelScale, GrowthTime, GrowthCurve);
 
             m_spheres.Add(sphere);
         }

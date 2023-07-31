@@ -63,9 +63,8 @@ public class Raymarcher : MonoBehaviour {
             return;
         }
 
-        for (int i = 0; i < m_spheres.Count; i++) {
-            m_spheres[i].Render(smokesArray, depthArray, src, i);
-        }
+        for (int i = 0; i < m_spheres.Count; i++)
+            m_spheres[i].Render(smokesArray, depthArray, i);
 
         m_compositeMaterial.SetTexture("_DepthTexArray", depthArray);
         Graphics.Blit(src, dest, m_compositeMaterial);
